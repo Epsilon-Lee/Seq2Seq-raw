@@ -1,0 +1,182 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from torch.autograd import Variable
+
+
+# multi-layer bi-directional lstm encoder
+class Encoder(nn.Module):
+	def __init__(self, opts):
+		super(Encoder, self).__init__()
+		self.opts = opts
+		self.emb = nn.Embedding(opts.srcVocabSize, opts.embSize)
+		self.rnn = nn.LSTM(opts.embSize, opts.hidSize, opts.layerNum, bidirectional=opts.bidirectional)
+ 
+	def selectLastStates(self, output, batchLengths):
+		# output: seq_len x bz x (hz x num_directions)
+		# batchLengths: a list of length for each example
+		seq_len = output.size(0)
+		selectIdxs = [length - 1 + i * seq_len for i, length in enumerate(batchLengths)]
+		if self.opts.cuda:
+			selectIdxs = torch.LongTensor(selectIdxs).cuda()
+		output = output.transpose(0, 1).contiguous().view(-1, output.size(2)) # (bz x seq_len) x (hz x num_directions)
+		return torch.index_select(output, 0, Variable(selectIdxs)) # bz x (hz x num_directions)
+
+	def forward(self, inputs, packed=True):
+		batchIdxPt, batchMaskPt, batchLengths = inputs
+		batchIdxPt = batchIdxPt.t().contiguous()
+		batchLengths = list(batchLengths)
+		# print batchIdxPt
+		# print batchLengths
+		# print len(batchLengths)
+		batchEmb = self.emb(batchIdxPt)
+		if packed:
+			batchEmb_packed = pack_padded_sequence(batchEmb, batchLengths)
+			output_packed, (h_n, c_n )= self.rnn(batchEmb_packed)
+			output, _ = pad_packed_sequence(output_packed)
+		else:
+			output, (h_n, c_n) = self.rnn(batchEmb)
+		# return output, h_n, c_n # seq_len x bz x (hz x num_directions), (num_layers x num_directions) x bz x hz
+		lastStates = self.selectLastStates(output, batchLengths)
+		return lastStates # bz x (hz x num_directions)
+
+
+# multi-layer lstm stack: motivated by OpenNMT-py
+class StackedLSTM(nn.Module):
+	def __init__(self, opts):
+		super(StackedLSTM, self).__init__()
+		if opts.bidirectional == True:
+			self.dirNum = 2
+		else:
+			self.dirNum = 1
+		# self.rnnStack = nn.ModuleList([nn.LSTMCell(opts.embSize, opts.hidSize * dirNum)] \
+		# 				+ [nn.LSTMCell(opts.hidSize, opts.hidSize * dirNum) for layer in range(opts.layerNum - 1)])
+		self.rnnStack = nn.ModuleList([nn.LSTMCell(opts.embSize, opts.hidSize * self.dirNum)] \
+						+ [nn.LSTMCell(opts.hidSize * self.dirNum, opts.hidSize * self.dirNum) \
+						for layer in range(opts.layerNum - 1)])
+	
+	def forward(self, emb_t, hids):
+		# emb_t: bz x embz
+		# hids: a list of tuple (h_0, c_0)
+		output_l = emb_t
+		new_hids = []
+		for lstmCell, hid in zip(self.rnnStack, hids):
+			# print output_l.size()
+			# print hid[0].size()
+			# print lstmCell
+			h_1, c_1 = lstmCell(output_l, hid)
+			output_l = h_1
+			new_hids += [(h_1, c_1)]
+		return output_l, new_hids
+
+
+# multi-layer lstm decoder
+class Decoder(nn.Module):
+	def __init__(self, opts, tgtDictionary):
+		super(Decoder, self).__init__()
+		self.emb = nn.Embedding(tgtDictionary.size(), opts.embSize, \
+								padding_idx=tgtDictionary.tgt_specials['<pad>'])
+		self.rnnStack = StackedLSTM(opts)
+
+	def forward(self, inputs, encoderHid):
+		# inputs: batchIdxPt, batchMask, batchLengths
+		# encoderHid: list of tuple with length opts.layerNum
+		batchIdxPt, _, _ = inputs
+		batchIdxPt = batchIdxPt.t() # seq_len x bz
+		batchEmb = self.emb(batchIdxPt[:-1]) # exclude '</s>' idx
+		outputs = []
+		hids = encoderHid
+		for batchEmb_t in batchEmb.split(1): # split size: 1
+			batchEmb_t = batchEmb_t.squeeze(0) # bz x embz
+			# print batchEmb_t.size()
+			output_t, hids = self.rnnStack(batchEmb_t, hids)
+			# print 'output_t', output_t.size()
+			outputs += [output_t.unsqueeze(0)]
+		outputs = torch.cat(outputs) # (seq_len - 1) x bz x hz
+
+		return outputs
+
+
+class AttentiveDecoder(nn.Module):
+	def __init__(self, opts):
+		pass
+
+# Composite models
+# 1. seq2seq model
+# 2. seq2seq+att model
+
+class Seq2Seq(nn.Module):
+	def __init__(self, opts, tgtDictionary):
+		super(Seq2Seq, self).__init__()
+		self.encoder = Encoder(opts)
+		self.decoder = Decoder(opts, tgtDictionary)
+		dirNum = 1
+		if opts.bidirectional:
+			dirNum = 2
+		self.generator = nn.Linear(opts.hidSize * dirNum, tgtDictionary.size())
+		self.logSoftmax = nn.LogSoftmax()
+		weight = torch.ones(tgtDictionary.size())
+		weight[tgtDictionary.tgt_specials['<pad>']] = 0
+		self.loss = nn.NLLLoss(weight, size_average=False)
+
+	def forward(self, srcInputs, tgtInputs, opts):
+		encoderHid = self.encoder(srcInputs, opts.packed) # bz x (hz x num_directions)
+		encoderHidLst = [(encoderHid, encoderHid) for i in range(opts.layerNum)]
+		outputs = self.decoder(tgtInputs, encoderHidLst) # (seq_len - 1) x bz x hz
+		# print outputs.size()
+		outputs = outputs.view(-1, outputs.size(2))
+		unnormalized_probs = self.generator(outputs)#.view(-1, outputs.size(2))
+		# probs = F.softmax(unnormalized_probs) # ((seq_len - 1) x bz) x hz
+		logProbs = self.logSoftmax(unnormalized_probs)
+		return logProbs
+
+	def MLELoss(self, logProbs, tgtInputs):
+		tgts = tgtInputs[0].t()[1:].contiguous().view(-1) # ((seq_len - 1) x bz)
+		loss_batch = self.loss(logProbs, tgts)
+		return loss_batch
+
+	def MemoryEfficientMLELoss(self, probs, tgtInputs):
+		pass
+
+
+if __name__ == '__main__':
+	class Opts:
+		bidirectional = True
+		srcVocabSize = 100
+		tgtVocabSize = 100
+		embSize = 4
+		hidSize = 3
+		layerNum = 8
+
+	opts = Opts()
+	print opts
+
+	from torch.autograd import Variable
+	batch_tensor = torch.LongTensor([[9, 7, 10, 14, 0, 0], [96, 99, 32, 5, 9, 0]])
+	mask_tensor = torch.FloatTensor([[1, 1, 1, 1, 0, 0], [1, 1, 1, 1, 1, 0]])
+	batch_tensor_var = Variable(batch_tensor)
+	mask_tensor_var = Variable(mask_tensor)
+
+	emb_layer = nn.Embedding(opts.tgtVocabSize, opts.embSize)
+	embs_var = emb_layer(batch_tensor_var).transpose(0, 1)
+
+	rnnStack = StackedLSTM(opts)
+	print rnnStack
+	dirNum = 1
+	if opts.bidirectional == True:
+		dirNum = 2
+	hids_0 = [(Variable(torch.zeros(2, opts.hidSize * dirNum)), Variable(torch.zeros(2, opts.hidSize  * dirNum))) for layer in range(opts.layerNum)]
+	emb_t = embs_var.split(1)[0]
+	# print emb_t.squeeze(0)
+	# print hids_0
+	output_l, new_hids = rnnStack(emb_t.squeeze(0), hids_0)
+	print output_l
+	print type(new_hids), len(new_hids)
+
+	decoder = Decoder(opts)
+	print decoder
+	input4decoder = (batch_tensor_var, None, None)
+	outputs = decoder(input4decoder, hids_0)
+	print outputs.size()
+

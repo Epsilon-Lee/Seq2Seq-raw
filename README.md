@@ -1,2 +1,10 @@
 # Seq2Seq-raw
-This is a raw implementation of encoder-decoder model with\out attention for nmt. 
+This my a raw implementation of encoder-decoder model with\out attention for nmt. 
+
+### Design Consideration
+
+- `Dict` class
+- `Dataset` class
+- `Encoder`, `Decoder` class
+- (*) `Attention` class
+

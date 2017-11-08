@@ -1,5 +1,125 @@
 import torch
 import random
+import math
+
+class SentencePairDataset(object):
+
+	MAX_LEN = 1000
+
+	def __init__(self):
+		self.name = '' # de2en
+		self.data_symbol = []
+		self.data_id = []
+		self.batch_num = 0
+		self.batch_size = 0
+		self.cuda = False
+
+	def make_dataset(
+		self,
+		name,
+		path_to_a,
+		path_to_b,
+		dict_a,
+		dict_b,
+		max_len=None
+	):
+		if max_len is None:
+			max_len = self.MAX_LEN
+		lines_a = []
+		lines_b = []
+		with open(path_to_a, 'r') as f_a:
+			lines_a = f_a.readlines()
+		with open(path_to_b, 'r') as f_b:
+			lines_b = f_b.readlines()
+		for line_a, line_b in zip(lines_a, lines_b):
+			# line_a, line_b should not be '' string
+			line_a, line_b = line_a.strip(), line_b.strip()
+			self.data_symbol.append((line_a, line_b))
+			# cut off by max_len
+			line_a_words, line_b_words = line_a.split(), line_b.split()
+			line_a_words = line_a_words[:max_len]
+			line_b_words = line_b_words[:max_len]
+			# convert to ids
+			line_a_id = dict_a.convertSymbolSeq2IdxSeq(line_a_words)
+			line_b_id = dict_b.convertSymbolSeq2IdxSeq(['<s>'] + line_b_words + ['</s>'])
+			self.data_id.append((line_a_id, line_b_id))
+
+		srclen = [len(tup[0]) for tup in self.data_id]
+		symbol_id_srclen = zip(self.data_symbol, self.data_id, srclen)
+		symbol_id_srclen_sorted = sorted(symbol_id_srclen, key=lambda tup: tup[2])
+		self.data_symbol, self.data_id, _ = zip(*symbol_id_srclen_sorted)
+
+		# # test
+		# for symbol, ids in zip(self.data_symbol, self.data_id):
+		# 	print symbol
+		# 	print ids
+		# 	print len(ids[0])
+		# 	print 
+
+	def __len__(self):
+		assert self.batch_size is not 0, "batch_size is not set"
+		return self.batch_num
+
+	def set_batch_size(self, batch_size):
+		self.batch_size = batch_size
+		self.batch_num = int(math.ceil(len(self.data_id) * 1. / self.batch_size))
+		self.order = torch.randperm(self.batch_num).tolist()
+
+	def set_curriculum(self):
+		self.order = [idx for idx in xrange(self.batch_size)]
+
+	def shuffle(self):
+		self.order = torch.randperm(self.batch_num).tolist()
+
+	def _batchify(self, data_symbol_batch, data_id_batch):
+		bz = len(data_symbol_batch)
+		src_lens_batch = [len(data_id[0]) for data_id in data_id_batch]
+		tgt_lens_batch = [len(data_id[1]) for data_id in data_id_batch]
+		# sorted by src
+		symbol_id_srclen_tgtlen = zip(data_symbol_batch, data_id_batch, src_lens_batch, tgt_lens_batch)
+		symbol_id_srclen_tgtlen_sorted = sorted(symbol_id_srclen_tgtlen, key=lambda tup: tup[2], reverse=True)
+		data_symbol_batch, data_id_batch, src_lens_batch, tgt_lens_batch = zip(*symbol_id_srclen_tgtlen_sorted)
+
+		# test
+		# for i in xrange(bz):
+		# 	print data_symbol_batch[i]
+		# 	print data_id_batch[i]
+		# 	print src_lens_batch[i]
+		# 	print tgt_lens_batch[i]
+		# 	print
+
+		max_len_src = max(src_lens_batch)
+		max_len_tgt = max(tgt_lens_batch)
+
+		src_id_batch, tgt_id_batch = zip(*data_id_batch)
+		
+		# padding src, tgt
+		src_id_tensor = torch.LongTensor(bz, max_len_src).fill_(0)
+		src_mask_tensor = torch.FloatTensor(bz, max_len_src).fill_(0)
+		tgt_id_tensor = torch.LongTensor(bz, max_len_tgt).fill_(0)
+		tgt_mask_tensor = torch.LongTensor(bz, max_len_tgt).fill_(0)
+		for i in xrange(bz):
+			src_id = torch.LongTensor(src_id_batch[i])
+			src_mask = torch.FloatTensor(src_lens_batch[i]).fill_(1)
+			tgt_id = torch.LongTensor(tgt_id_batch[i])
+			tgt_mask = torch.FloatTensor(tgt_lens_batch[i]).fill_(1)
+			src_id_tensor[i].narrow(0, 0, src_lens_batch[i]).copy_(src_id)
+			src_mask_tensor[i].narrow(0, 0, src_lens_batch[i]).copy_(src_mask)
+			tgt_id_tensor[i].narrow(0, 0, tgt_lens_batch[i]).copy_(tgt_id)
+			tgt_mask_tensor[i].narrow(0, 0, tgt_lens_batch[i]).copy_(tgt_mask)
+
+		data_id_batch = (src_id_tensor, tgt_id_tensor)
+		data_mask_batch = (src_mask_tensor, tgt_mask_tensor)
+		data_lens_batch = (src_lens_batch, tgt_lens_batch)
+		return data_symbol_batch, data_id_batch, data_mask_batch, data_lens_batch
+
+	def __getitem__(self, idx):
+		idx = self.order[idx]
+		bz = self.batch_size
+		data_symbol_batch = self.data_symbol[idx * bz : (idx + 1) * bz]
+		data_id_batch = self.data_id[idx * bz : (idx + 1) * bz]
+		data_symbol_batch, data_id_batch, data_mask_batch, data_lens_batch = self._batchify(data_symbol_batch, data_id_batch)
+		return data_symbol_batch, data_id_batch, data_mask_batch, data_lens_batch
 
 
 class Dataset(object):
@@ -13,12 +133,13 @@ class Dataset(object):
 	def __len__(self):
 		return self.batchNum
 
-	def makeDataset(self, name, pathToCorpus, dictionary):
+	def makeDataset(self, name, pathToCorpus, dictionary, max_len):
 		self.name = name
 		with open(pathToCorpus, 'r') as f:
 			lines = f.readlines()
 			for line in lines:
 				words = line.split()
+				words = words[:max_len] # cut by max_len
 				if name == 'tgt':
 					self.dataSymbol.append(['<s>'] + words + ['</s>'])
 				else:
@@ -80,6 +201,9 @@ class BilingualDataset(object):
 	def setBatchMode(self, mode):
 		self.batchMode = mode
 
+	def setCurriculum(self):
+		self.order = [idx for idx in range(self.batchNum)]
+
 	def __getitem__(self, idx):
 		if self.batchMode:
 			realIdx = int(self.order[idx])
@@ -100,7 +224,7 @@ class BilingualDataset(object):
 		src_tgt = zip(self.srcDataset.dataSymbol, self.srcDataset.dataIdx, \
 					self.tgtDataset.dataSymbol, self.tgtDataset.dataIdx)
 		# print type(src_tgt)
-		sorted(src_tgt, key=lambda tp: len(tp[3]))
+		src_tgt = sorted(src_tgt, key=lambda tp: len(tp[3]))
 		self.srcDataset.dataSymbol, self.srcDataset.dataIdx, self.tgtDataset.dataSymbol, self.tgtDataset.dataIdx = zip(*src_tgt)
 		# for idxSeq in self.srcDataset.dataIdx:
 		# 	print(len(idxSeq))
@@ -108,5 +232,4 @@ class BilingualDataset(object):
 	def shuffleBatch(self):
 		self.order = torch.randperm(self.batchNum)
 
-	def curriculum(self):
-		pass
+	

@@ -7,10 +7,10 @@ from torch.autograd import Variable
 
 # multi-layer bi-directional lstm encoder
 class Encoder(nn.Module):
-	def __init__(self, opts):
+	def __init__(self, opts, srcDictionary):
 		super(Encoder, self).__init__()
 		self.opts = opts
-		self.emb = nn.Embedding(opts.srcVocabSize, opts.embSize)
+		self.emb = nn.Embedding(srcDictionary.size(), opts.embSize, padding_idx=srcDictionary.src_specials['<pad>'])
 		self.rnn = nn.LSTM(opts.embSize, opts.hidSize, opts.layerNum, bidirectional=opts.bidirectional)
  
 	def selectLastStates(self, output, batchLengths):
@@ -107,9 +107,9 @@ class AttentiveDecoder(nn.Module):
 # 2. seq2seq+att model
 
 class Seq2Seq(nn.Module):
-	def __init__(self, opts, tgtDictionary):
+	def __init__(self, opts, srcDictionary, tgtDictionary):
 		super(Seq2Seq, self).__init__()
-		self.encoder = Encoder(opts)
+		self.encoder = Encoder(opts, srcDictionary)
 		self.decoder = Decoder(opts, tgtDictionary)
 		dirNum = 1
 		if opts.bidirectional:
@@ -119,6 +119,16 @@ class Seq2Seq(nn.Module):
 		weight = torch.ones(tgtDictionary.size())
 		weight[tgtDictionary.tgt_specials['<pad>']] = 0
 		self.loss = nn.NLLLoss(weight, size_average=False)
+		if opts.cuda:
+			self.loss.cuda()
+
+	# Initialize weights
+	def init_weight(self):
+		initrange = 0.1
+		# self.encoder.emb.weight.data.uniform_(-initrange, initrange)
+		# self.decoder.emb.weight.data.uniform_(-initrange, initrange)
+		for p in self.parameters():
+			p.data.uniform_(-initrange, initrange)
 
 	def forward(self, srcInputs, tgtInputs, opts):
 		encoderHid = self.encoder(srcInputs, opts.packed) # bz x (hz x num_directions)
@@ -137,6 +147,281 @@ class Seq2Seq(nn.Module):
 		return loss_batch
 
 	def MemoryEfficientMLELoss(self, probs, tgtInputs):
+		pass
+
+class Seq2Seq_MaximumEntropy(nn.Module):
+	def __init__(self, opts, src_dict, tgt_dict):
+		"""Initialize Model"""
+		super(Seq2Seq_MaximumEntropy, self).__init__()
+
+		self.use_gpu = opts.use_gpu
+
+		self.bidirectional = opts.bidirectional
+		self.src_num_directions = 2 if self.bidirectional else 1
+		self.src_vocab_size = src_dict.size()
+		self.tgt_vocab_size = tgt_dict.size()
+		self.src_emb_size = opts.src_emb_size
+		self.tgt_emb_size = opts.tgt_emb_size
+		self.src_hid_size = opts.src_hid_dim // self.src_num_directions
+		self.tgt_hid_size = opts.tgt_hid_dim
+		self.src_num_layers = opts.src_num_layers
+		self.tgt_num_layers = opts.tgt_num_layers
+
+		self.batch_first = opts.batch_first
+		self.dropout = opts.dropout
+
+		self.src_dict = src_dict
+		self.tgt_dict = tgt_dict
+
+		self.src_emb = nn.Embedding(
+			self.src_vocab_size,
+			self.src_emb_size,
+			self.src_dict.src_specials['<pad>']
+		)
+
+		self.tgt_emb = nn.Embedding(
+			self.tgt_vocab_size,
+			self.tgt_emb_size,
+			self.tgt_dict.tgt_specials['<pad>']
+		)
+
+		self.encoder = nn.LSTM(
+			self.src_emb_size,
+			self.src_hid_size,
+			self.src_num_layers,
+			batch_first=self.batch_first,
+			dropout=self.dropout,
+			bidirectional=self.bidirectional
+		)
+
+		self.enchid_to_dechid = nn.Linear(self.src_hid_size * self.src_num_directions, self.tgt_hid_size * self.tgt_num_layers * 2)
+
+		self.decoder = nn.LSTM(
+			self.tgt_emb_size,
+			self.tgt_hid_size,
+			self.tgt_num_layers,
+			batch_first=self.batch_first,
+			dropout=self.dropout,
+		)
+
+		self.decoder_transform = nn.Linear(
+			self.tgt_hid_size,
+			self.tgt_hid_size
+		)
+
+		self.readout = nn.Linear(
+			self.tgt_hid_size,
+			self.tgt_vocab_size
+		)
+
+		weight_mask = torch.ones(tgt_dict.size())
+		weight_mask[tgt_dict.tgt_specials['<pad>']] = 0
+		self.criterion = nn.CrossEntropyLoss(weight=weight_mask, size_average=False) # deal with unnormalized prob.
+
+	def init_weight(self):
+		initrange = 0.1
+		self.src_emb.weight.data.uniform_(-initrange, initrange)
+		self.tgt_emb.weight.data.uniform_(-initrange, initrange)
+		self.enchid_to_dechid.bias.data.fill_(0)
+		self.decoder_transform.bias.data.fill_(0)
+		self.readout.bias.data.fill_(0)
+
+	def forward(self, src_input, tgt_input):
+		src_idxs, _ , _ = src_input
+		tgt_idxs, _ , _ = tgt_input
+
+		src_embs = self.src_emb(src_idxs)
+		_ , (enc_h_n, enc_c_n) = self.encoder(src_embs) # enc_h_n: (nLayer x nDir) x bz x hz
+		enc_h_n = enc_h_n.view(-1, self.src_num_directions, enc_h_n.size(1), enc_h_n.size(2)).transpose(1, 2)
+		enc_h_n = enc_h_n.contiguous().view(enc_h_n.size(0), enc_h_n.size(1), -1)
+		enc_h_n_last_layer = enc_h_n[self.src_num_directions - 1].contiguous()
+		dec_hc_0 = self.enchid_to_dechid(enc_h_n_last_layer) # bz x (nL x hz x 2)
+		dec_hc_0 = dec_hc_0.view(dec_hc_0.size(0), -1, self.tgt_hid_size)
+		dec_hc_0 = dec_hc_0.transpose(0, 1)
+		dec_hc_0 = dec_hc_0.contiguous().view(2, self.tgt_num_layers, dec_hc_0.size(1), self.tgt_hid_size)
+		dec_h_0, dec_c_0 = dec_hc_0.split(1) # dec_h_0: nL x bz x hz
+		dec_h_0 = dec_h_0.squeeze(0)
+		dec_c_0 = dec_c_0.squeeze(0)
+
+		tgt_idxs = tgt_idxs[:, :-1].contiguous()
+		# print(tgt_idxs.size())
+		tgt_embs = self.tgt_emb(tgt_idxs)
+		dec_outputs, _ = self.decoder(tgt_embs, (dec_h_0, dec_c_0)) # bz x seq_len-1 x hz
+		dec_out_transformed = self.decoder_transform(dec_outputs)
+		dec_logit = self.readout(dec_out_transformed) # bz x seq_len-1 x hz
+
+		return dec_logit # unnormalized prob.
+
+	def MLELoss(self, dec_logit, tgt_input):
+		tgt = tgt_input[0][:, 1:].contiguous()
+		return self.criterion(dec_logit.view(dec_logit.size(0) * dec_logit.size(1), -1), tgt.view(-1))
+
+
+class Seq2SeqPyTorch(nn.Module):
+	"""Container module with an encoder, deocder, embeddings."""
+	def __init__(
+		self,
+		src_emb_dim,
+		trg_emb_dim,
+		src_vocab_size,
+		trg_vocab_size,
+		src_hidden_dim,
+		trg_hidden_dim,
+		batch_size,
+		pad_token_src,
+		pad_token_trg,
+		bidirectional=True,
+		nlayers=2,
+		nlayers_trg=1,
+		dropout=0.
+	):
+		"""Initialize model."""
+		super(Seq2SeqPyTorch, self).__init__()
+		self.src_vocab_size = src_vocab_size
+		self.trg_vocab_size = trg_vocab_size
+		self.src_emb_dim = src_emb_dim
+		self.trg_emb_dim = trg_emb_dim
+		self.src_hidden_dim = src_hidden_dim
+		self.trg_hidden_dim = trg_hidden_dim
+		# self.batch_size = batch_size
+		self.bidirectional = bidirectional
+		self.nlayers = nlayers
+		self.dropout = dropout
+		self.num_directions = 2 if bidirectional else 1
+		self.pad_token_src = pad_token_src
+		self.pad_token_trg = pad_token_trg
+		self.src_hidden_dim = src_hidden_dim // 2 \
+			if self.bidirectional else src_hidden_dim
+
+		self.src_embedding = nn.Embedding(
+			src_vocab_size,
+			src_emb_dim,
+			self.pad_token_src
+		)
+		self.trg_embedding = nn.Embedding(
+			trg_vocab_size,
+			trg_emb_dim,
+			self.pad_token_trg
+		)
+
+		self.encoder = nn.LSTM(
+			src_emb_dim,
+			self.src_hidden_dim,
+			nlayers,
+			bidirectional=bidirectional,
+			batch_first=True,
+			dropout=self.dropout
+		)
+
+		self.decoder = nn.LSTM(
+			trg_emb_dim,
+			trg_hidden_dim,
+			nlayers_trg,
+			dropout=self.dropout,
+			batch_first=True
+		)
+
+		self.encoder2decoder = nn.Linear(
+			self.src_hidden_dim * self.num_directions,
+			trg_hidden_dim
+		)
+		self.decoder2vocab = nn.Linear(trg_hidden_dim, trg_vocab_size)
+
+		weight_mask = torch.ones(self.trg_vocab_size)
+		weight_mask[self.pad_token_trg] = 0
+		self.criterion = nn.CrossEntropyLoss(weight=weight_mask, size_average=False)
+		
+		self.init_weights()
+
+	def init_weights(self):
+		"""Initialize weights."""
+		initrange = 0.1
+		self.src_embedding.weight.data.uniform_(-initrange, initrange)
+		self.trg_embedding.weight.data.uniform_(-initrange, initrange)
+		self.encoder2decoder.bias.data.fill_(0)
+		self.decoder2vocab.bias.data.fill_(0)
+
+	def get_state(self, input):
+		"""Get cell states and hidden states."""
+		batch_size = input.size(0) \
+			if self.encoder.batch_first else input.size(1)
+		h0_encoder = Variable(torch.zeros(
+			self.encoder.num_layers * self.num_directions,
+			batch_size,
+			self.src_hidden_dim
+		))
+		c0_encoder = Variable(torch.zeros(
+			self.encoder.num_layers * self.num_directions,
+			batch_size,
+			self.src_hidden_dim
+		))
+
+		return h0_encoder.cuda(), c0_encoder.cuda()
+
+	def forward(self, input_src, input_trg, ctx_mask=None, trg_mask=None):
+		"""Propogate input through the network."""
+		src_emb = self.src_embedding(input_src)
+		trg_emb = self.trg_embedding(input_trg)
+
+		self.h0_encoder, self.c0_encoder = self.get_state(input_src)
+		src_h, (src_h_t, src_c_t) = self.encoder(
+			src_emb, (self.h0_encoder, self.c0_encoder)
+		)
+
+		if self.bidirectional:
+			h_t = torch.cat((src_h_t[-1], src_h_t[-2]), 1)
+			c_t = torch.cat((src_c_t[-1], src_c_t[-2]), 1)
+		else:
+			h_t = src_h_t[-1]
+			c_t = src_c_t[-1]
+
+		decoder_init_state = nn.Tanh()(self.encoder2decoder(h_t))
+
+		trg_h, (_, _) = self.decoder(
+			trg_emb,
+			(
+				decoder_init_state.view(
+					self.decoder.num_layers,
+					decoder_init_state.size(0),
+					decoder_init_state.size(1)
+					),
+				c_t.view(
+					self.decoder.num_layers,
+					c_t.size(0),
+					c_t.size(1)
+				)
+			)
+		)
+
+		trg_h_reshape = trg_h.contiguous().view(
+			trg_h.size(0) * trg_h.size(1),
+			trg_h.size(2)
+		)
+
+		decoder_logit = self.decoder2vocab(trg_h_reshape)
+		decoder_logit = decoder_logit.view(
+			trg_h.size(0),
+			trg_h.size(1),
+			decoder_logit.size(1)
+		)
+
+		return decoder_logit
+
+	def mle_loss(self, dec_logit, tgt):
+		return self.criterion(dec_logit.contiguous().view(dec_logit.size(0) * dec_logit.size(1), -1), tgt.contiguous().view(-1))
+
+	def decode(self, logits):
+		"""Return probability distribution over words."""
+		logits_reshape = logits.view(-1, self.trg_vocab_size)
+		word_probs = F.softmax(logits_reshape)
+		word_probs = word_probs.view(
+			logits.size()[0], logits.size()[1], logits.size()[2]
+		)
+		return word_probs
+
+
+class SeqLM(nn.Module):
+	def __init__(self, opts, dictionary):
 		pass
 
 

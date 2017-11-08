@@ -17,6 +17,7 @@ parser.add_argument("-srcVocabSize", type=int, default=30000)
 parser.add_argument("-tgtVocabSize", type=int, default=30000)
 
 parser.add_argument("-batch_size", type=int, default=64)
+parser.add_argument("-max_len", type=int, default=50)
 
 opts = parser.parse_args()
 
@@ -44,22 +45,23 @@ if __name__ == '__main__':
 	# print tgtDict.symbol_freq_lst
 
 	# 2. create train, dev, test 
+	max_len = opts.max_len
 	trainSrcDataset = Dataset()
-	trainSrcDataset.makeDataset('src', opts.trainSrcFilePath, srcDict)
+	trainSrcDataset.makeDataset('src', opts.trainSrcFilePath, srcDict, max_len)
 	trainTgtDataset = Dataset()
-	trainTgtDataset.makeDataset('tgt', opts.trainTgtFilePath, tgtDict)
+	trainTgtDataset.makeDataset('tgt', opts.trainTgtFilePath, tgtDict, max_len)
 	trainBilingualDataset = BilingualDataset(trainSrcDataset, trainTgtDataset)
 	
 	devSrcDataset = Dataset()
-	devSrcDataset.makeDataset('src', opts.devSrcFilePath, srcDict)
+	devSrcDataset.makeDataset('src', opts.devSrcFilePath, srcDict, max_len)
 	devTgtDataset = Dataset()
-	devTgtDataset.makeDataset('tgt', opts.devTgtFilePath, tgtDict)
+	devTgtDataset.makeDataset('tgt', opts.devTgtFilePath, tgtDict, max_len)
 	devBilingualDataset = BilingualDataset(devSrcDataset, devTgtDataset)
 
 	testSrcDataset = Dataset()
-	testSrcDataset.makeDataset('src', opts.testSrcFilePath, srcDict)
+	testSrcDataset.makeDataset('src', opts.testSrcFilePath, srcDict, max_len)
 	testTgtDataset = Dataset()
-	testTgtDataset.makeDataset('tgt', opts.testTgtFilePath, tgtDict)
+	testTgtDataset.makeDataset('tgt', opts.testTgtFilePath, tgtDict, max_len)
 	testBilingualDataset = BilingualDataset(testSrcDataset, testTgtDataset)
 
 	# test bilingual dataset

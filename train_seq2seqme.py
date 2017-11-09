@@ -8,6 +8,7 @@ from seq2seq.Dict import Dict
 import argparse
 import time
 import os
+# from datetime import datatime
 
 parser = argparse.ArgumentParser(description="train file options parser")
 
@@ -38,20 +39,23 @@ parser.add_argument("-batch_first", type=bool, default=True)
 parser.add_argument("-dropout", type=float, default=0)
 
 # Training options
-parser.add_argument("-max_epoch", type=int, default=50)
-parser.add_argument("-batch_size", type=int, default=64)
-parser.add_argument("-lr", type=float, default=0.0001)
+parser.add_argument("-max_epoch", type=int, default=100)
+parser.add_argument("-batch_size", type=int, default=1)
+parser.add_argument("-lr", type=float, default=0.01)
 parser.add_argument("-cuda", type=int, default=1)
 parser.add_argument("-use_gpu", type=int, default=1)
 parser.add_argument("-gpuid", type=int, default=2)
 
 # Save model path
 parser.add_argument("-save_path", type=str, default="../Models/Seq2Seq-raw_Models")
+parser.add_argument("-model_prefix", type=str, default="seq2seq_me_bz64_mle")
 
 # Logging options
 parser.add_argument("-log_interval", type=int, default=50)
 parser.add_argument("-visualize_interval", type=int, default=500)
-parser.add_argument("-vis_num", type=int, default=8)
+parser.add_argument("-vis_num", type=int, default=1)
+parser.add_argument("-log_file_path", type=str, default="../Logs/Seq2Seq-raw/Seq2SeqME_bz64_mle.txt")
+
 
 opts = parser.parse_args()
 print(opts)
@@ -81,11 +85,13 @@ trainDataset.set_batch_size(opts.batch_size)
 print("Train set batch number: %d" % len(trainDataset))
 print("Source vocabulary size: %d" % srcDictionary.size())
 print("Target vocabulary size: %d" % tgtDictionary.size())
-
+print("Model string prefix   : %s" % opts.model_prefix)
+print("Log file path         : %s" % opts.log_file_path)
+print("Run on gpu            : %d" % opts.gpuid)
 # create model
 # print(tgtDictionary.size())
 seq2seq = Seq2Seq_MaximumEntropy(opts, srcDictionary, tgtDictionary)
-seq2seq.init_weight()
+# seq2seq.init_weight()
 if opts.cuda:
 	seq2seq.cuda()
 print("Model architecture:")
@@ -96,14 +102,22 @@ print(seq2seq)
 # print(list(seq2seq.parameters()))
 
 # create optimizer
-# sgdOptimizer = optim.SGD(seq2seq.parameters(), lr=opts.lr)
-sgdOptimizer = optim.Adam(seq2seq.parameters(), lr=opts.lr)
+sgdOptimizer = optim.SGD(seq2seq.parameters(), lr=opts.lr)
+# sgdOptimizer = optim.Adam(seq2seq.parameters(), lr=opts.lr)
 
 loss_record = 0.
 start_time = time.time()
 loss_accum = 0
 acc_count_total = 0
 word_count_total = 0
+# open logging file
+if os.path.exists(opts.log_file_path):
+	f_log = open(opts.log_file_path, 'a')
+else:
+	f_log = open(opts.log_file_path, 'w')
+f_log.write('------------------------Start Experiment------------------------\n')
+f_log.write(time.asctime(time.localtime(time.time())) + "\n")
+f_log.write('----------------------------------------------------------------\n')
 for epochIdx in range(1, opts.max_epoch + 1):
 	# print("trainDataset size: %d batches" % len(trainDataset))
 	for idx in range(len(trainDataset)):
@@ -159,6 +173,16 @@ for epochIdx in range(1, opts.max_epoch + 1):
 						acc_count * 1. / word_count_batch, 
 						acc_count_total * 1. / word_count_total, 
 						time.time() - start_time))
+			f_log.write("Epoch %d Batch %d loss %f loss_avg %f acc: %f acc_avg: %f time elapsed: %f\n" 
+					  % (epochIdx, idx + 1, 
+						loss_record / word_count_batch, 
+						# loss_record, 
+						# word_count_batch, 
+						# word_count_with_padding, 
+						loss_accum / word_count_total, 
+						acc_count * 1. / word_count_batch, 
+						acc_count_total * 1. / word_count_total, 
+						time.time() - start_time))
 	
 		if (idx + 1) % opts.visualize_interval == 0:
 			pred_idxs = pred_idxs.contiguous().view(bz_local, -1) # bz x (seq_len - 1)
@@ -174,6 +198,13 @@ for epochIdx in range(1, opts.max_epoch + 1):
 				print('tgt_pred: %s' % pred_symbol)
 				print('tgt_gold: %s' % tgt_symbol)
 				print
+				f_log.write('src     : %s\n' % src_symbol)
+				f_log.write('tgt_pred: %s\n' % pred_symbol)
+				f_log.write('tgt_gold: %s\n' % tgt_symbol)
+
+		f_log.flush()
+
+	# After each epoch, evaluate model in greedy mode
 
 
 	# save model every epoch
@@ -181,5 +212,10 @@ for epochIdx in range(1, opts.max_epoch + 1):
 	model_state_dict = seq2seq.state_dict()
 	saveModelDict['model_state_dict'] = model_state_dict
 	saveModelDict['epoch'] = epochIdx
-	torch.save(saveModelDict, os.path.join(opts.save_path, str(epochIdx) + str(acc_count * 1./ word_count_batch)))
+	model_string = opts.model_prefix + "-%d-acc_%.4f.pt" % (epochIdx, acc_count_total * 1. / word_count_total)
+	torch.save(
+		saveModelDict,
+		os.path.join(opts.save_path, model_string)
+	)
 
+f_log.close()

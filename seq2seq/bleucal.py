@@ -89,11 +89,7 @@ class BleuCalculator():
 			) / 4.
 		)
 
-		return (unigram_p, bigram_p, trigram_p, fourgram_p),
-				bleu,
-				bp,
-				(hyp_len, ref_len),
-				ratio
+		return(unigram_p, bigram_p, trigram_p, fourgram_p), bleu, bp, (hyp_len, ref_len), ratio
 
 	def calc_modified_n_gram_precision(
 		self,
@@ -126,26 +122,44 @@ class BleuCalculator():
 			candidiate unigram length, reference unigram length
 
 		"""
-		multi_ref_lst = zip(multi_ref_lst)
-		multi_ref_lst = [tup[0] for tup in multi_ref_lst]
+		# multi_ref_lst = []
+		# multi_ref_lst = zip(multi_ref_lst)
+		# multi_ref_lst = [tup[0] for tup in multi_ref_lst]
+		ref_lst_count = len(multi_ref_lst)
+		multi_ref_lst_new = []
+		for i in xrange(len(multi_ref_lst[0])):
+			ref_combine_lst = []
+			for j in xrange(ref_lst_count):
+				ref_combine_lst += [multi_ref_lst[j][i]]
+			multi_ref_lst_new += [ref_combine_lst]
+		multi_ref_lst = multi_ref_lst_new
+		del multi_ref_lst_new
+
 		numerator = 0.
 		denominator = 0.
-		if ngram == 1:
-			hyp_len = 0
-			ref_len = 1
+
+		hyp_len = 0
+		ref_len = 0
 		
+		# print('cand_lst length:')
+		# print(len(cand_lst))
+		# print('multi_ref_lst length:')
+		# print(len(multi_ref_lst))
 		for cand_sent, ref_sent_lst in zip(cand_lst, multi_ref_lst):
 			nu, de, hl, rl = self.calc_sent_statistics(
 				cand_sent,
 				ref_sent_lst,
 				ngram
 			)
+			# print(ref_sent_lst)
+			# print nu, de, hl, rl
 			numerator += nu
 			denominator += de
-			if ngram == 1:
-				hyp_len += hl
-				ref_len += rl
+			hyp_len += hl
+			ref_len += rl
 
+		# print('numerator: %d' % numerator)
+		# print('denominator: %d' % denominator)
 		ngram_modified_p = numerator / denominator
 
 		return ngram_modified_p, (hyp_len, ref_len)
@@ -210,11 +224,11 @@ class BleuCalculator():
 		# compute rl as the closest length w.r.t hl
 		ref_lens = [len(ref_word) for ref_word in ref_word_lst]
 		rl = ref_lens[0]
-		len_distance = math.abs(hl - rl)
+		len_distance = abs(hl - rl)
 		for ref_len in ref_lens:
-			if len_distance > math.abs(hl - ref_len):
+			if len_distance > abs(hl - ref_len):
 				rl = ref_len
-				len_distance = math.abs(hl - ref_len)
+				len_distance = abs(hl - ref_len)
 
 		# compute de and nu
 		de = len(cand_word) - ngram + 1
@@ -231,3 +245,48 @@ class BleuCalculator():
 			nu += nu_per_gram
 
 		return nu, de, hl, rl
+
+
+# ================
+# Unit Test
+# ================
+
+def unit_test_1():
+	cand_path = './debug/de2en_candidates.txt'
+	ref_path = './debug/test.en.tok'
+	with open(cand_path, 'r') as f_cand:
+		cand_lst = f_cand.readlines()
+	with open(ref_path, 'r') as f_ref:
+		ref_lst = f_ref.readlines()
+	cand_lst = [cand_sent.strip() for cand_sent in cand_lst]
+	ref_lst = [ref_sent.strip() for ref_sent in ref_lst]
+	multi_ref_lst = [ref_lst]
+	# print cand_lst
+	# print ref_lst
+	# print multi_ref_lst
+
+	# create bleucal object
+	bleucal = BleuCalculator(cand_path, ref_path)
+	ngram_precisions, bleu, bp, (hl, rl), ratio = bleucal.calc_bleu(cand_lst, multi_ref_lst)
+	uni_p, bi_p, tri_p, four_p = ngram_precisions
+	print("BLEU1: %s BLEU2: %s BLEU3: %s BLEU4: %s BLEU: %s bp: %s hyp_len: %d ref_len: %d ratio: %s" 
+		% (format(uni_p, "2.2%"),
+			format(bi_p, "2.2%"),
+			format(tri_p, "2.2%"),
+			format(four_p, "2.2%"),
+			format(bleu, "2.2%"),
+			format(bp, "0.4f"),
+			hl,
+			rl,
+			format(ratio, "0.4f"))
+		)
+
+	# format print
+	cand_sent = "i think my personal view is very simple with this slide and sharing access ."
+	ref_sent = "i think my personal story is explained very simply on the slide , and it &apos;s access ."
+	ref_sent_lst = [ref_sent]
+	nu, de, hl, rl = bleucal.calc_sent_statistics(cand_sent, ref_sent_lst, 3)
+	print nu, de, hl, rl
+
+if __name__ == '__main__':
+	unit_test_1() # passed

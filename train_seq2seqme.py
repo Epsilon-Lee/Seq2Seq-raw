@@ -40,7 +40,7 @@ parser.add_argument("-dropout", type=float, default=0)
 
 # Training options
 parser.add_argument("-max_epoch", type=int, default=100)
-parser.add_argument("-batch_size", type=int, default=1)
+parser.add_argument("-batch_size", type=int, default=16)
 parser.add_argument("-lr", type=float, default=0.01)
 parser.add_argument("-cuda", type=int, default=1)
 parser.add_argument("-use_gpu", type=int, default=1)
@@ -48,13 +48,13 @@ parser.add_argument("-gpuid", type=int, default=2)
 
 # Save model path
 parser.add_argument("-save_path", type=str, default="../Models/Seq2Seq-raw_Models")
-parser.add_argument("-model_prefix", type=str, default="seq2seq_me_bz64_mle")
+parser.add_argument("-model_prefix", type=str, default="seq2seq_me_bz16_mle")
 
 # Logging options
-parser.add_argument("-log_interval", type=int, default=50)
+parser.add_argument("-log_interval", type=int, default=16)
 parser.add_argument("-visualize_interval", type=int, default=500)
-parser.add_argument("-vis_num", type=int, default=1)
-parser.add_argument("-log_file_path", type=str, default="../Logs/Seq2Seq-raw/Seq2SeqME_bz64_mle.txt")
+parser.add_argument("-vis_num", type=int, default=8)
+parser.add_argument("-log_file_path", type=str, default="../Logs/Seq2Seq-raw/Seq2SeqME_bz16_mle.txt")
 
 
 opts = parser.parse_args()
@@ -91,7 +91,7 @@ print("Run on gpu            : %d" % opts.gpuid)
 # create model
 # print(tgtDictionary.size())
 seq2seq = Seq2Seq_MaximumEntropy(opts, srcDictionary, tgtDictionary)
-# seq2seq.init_weight()
+seq2seq.init_weight()
 if opts.cuda:
 	seq2seq.cuda()
 print("Model architecture:")

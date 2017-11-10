@@ -70,7 +70,6 @@ trainDataset.set_batch_size(opts.batch_size)
 print("Train set batch number: %d" % len(trainDataset))
 print("Source vocabulary size: %d" % srcDictionary.size())
 print("Target vocabulary size: %d" % tgtDictionary.size())
-
 # create model
 # print(tgtDictionary.size())
 seq2seq = Seq2Seq(opts, srcDictionary, tgtDictionary)

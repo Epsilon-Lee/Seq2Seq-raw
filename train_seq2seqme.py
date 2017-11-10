@@ -208,7 +208,7 @@ for epochIdx in range(1, opts.max_epoch + 1):
 
 
 	# save model every epoch
-	saveModelDict = {}
+	save_model_dict = {}
 	model_state_dict = seq2seq.state_dict()
 	saveModelDict['model_state_dict'] = model_state_dict
 	saveModelDict['epoch'] = epochIdx

@@ -194,7 +194,10 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 			bidirectional=self.bidirectional
 		)
 
-		self.enchid_to_dechid = nn.Linear(self.src_hid_size * self.src_num_directions, self.tgt_hid_size * self.tgt_num_layers * 2)
+		self.enchid_to_dechid = nn.Linear(
+			self.src_hid_size * self.src_num_directions,
+			self.tgt_hid_size * self.tgt_num_layers * 2
+		)
 
 		self.decoder = nn.LSTM(
 			self.tgt_emb_size,
@@ -240,8 +243,8 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 		dec_hc_0 = dec_hc_0.transpose(0, 1)
 		dec_hc_0 = dec_hc_0.contiguous().view(2, self.tgt_num_layers, dec_hc_0.size(1), self.tgt_hid_size)
 		dec_h_0, dec_c_0 = dec_hc_0.split(1) # dec_h_0: nL x bz x hz
-		dec_h_0 = dec_h_0.squeeze(0)
-		dec_c_0 = dec_c_0.squeeze(0)
+		# dec_h_0 = dec_h_0.squeeze(0)
+		# dec_c_0 = dec_c_0.squeeze(0)
 
 		tgt_idxs = tgt_idxs[:, :-1].contiguous()
 		# print(tgt_idxs.size())
@@ -255,6 +258,71 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 	def MLELoss(self, dec_logit, tgt_input):
 		tgt = tgt_input[0][:, 1:].contiguous()
 		return self.criterion(dec_logit.view(dec_logit.size(0) * dec_logit.size(1), -1), tgt.view(-1))
+
+	def greedy_search(self, src_id, max_decode_length):
+		"""Batch mode greedy search to get the prediction
+
+		Batch mode greedy search try to predict the current word with the maximum probability
+		at the current predicted distribution over vocab. And then feed to the input at next
+		timestep to predict next word. 
+
+		Argument
+		----------
+		src_id : Variable(torch.LongTensor)
+			source side batch with the shape: N x Len; this is padded with id src_dict.src_specials['<pad>']. 
+
+		Return
+		----------
+		score   : torch.FloatTensor
+
+
+		pred_id : torch.LongTensor
+			predicted target side word id seq list with the shape: N x MaxLen; this is not padded but
+			the EOS can be find by searching for the id tgt_dict.tgt_specials['</s>'] in each row. 
+		"""
+		self.eval()
+		# get encoder final state
+		src_id_emb = self.src_emb(src_id) # N x seq_len x embz
+		src_context, (src_h_n, src_c_0) = self.encoder(src_id_emb) # src_h_n: (n_layers x n_dir) x N x hz_src
+		src_h_n = src_h_n.view(
+			self.src_num_layers,
+			self.src_num_directions,
+			-1,
+			self.src_hid_size
+		)[self.src_num_layers - 1] # n_dir x N x hz_src
+		src_h_n = src_h_n.transpose(0, 1).contiguous().view(
+			-1,
+			self.src_num_directions * self.src_hid_size
+		) # N x (n_dir x hz_src) 
+		tgt_hc_0 = self.enchid_to_dechid(src_h_n) # N x (2 x hz_tgt)
+		tgt_h_0, tgt_c_0 = tgt_hc_0.contiguous().view(
+			-1,
+			2,
+			self.tgt_hid_size
+		).transpose(0, 1).split(1) # tgt_h_0: 1 x N x hz_tgt
+
+		# decode until max_decode_length arrived
+		batch_size = src_id.size(0) # int
+		# `cur` means current
+		cur_input = Variable(torch.LongTensor(batch_size, 1).fill_(self.tgt_dict.tgt_specials['<s>'])) # N x 1
+		h_n, c_n = tgt_h_0, tgt_c_0
+		score = [] # to store negative log likelihood for every predicted id
+		pred = [] # to store decoded id
+		for time_step in xrange(max_decode_length):
+			cur_input_emb = self.tgt_emb(cur_input) # N x 1 x embz_tgt
+			cur_output, (h_n, c_n) = self.decoder(cur_input_emb, (h_n, c_n)) # cur_output: N x 1 x hz_tgt
+			cur_output = cur_output.squeeze(1) # N x hz_tgt
+			cur_output_transformed = self.decoder_transform(cur_output) # N x hz_tgt
+			cur_readout = self.readout(cur_output_transformed) # N x vocab_size_tgt
+			cur_score, cur_pred = torch.max(cur_readout.data, 1) # cur_score: N, torch.FloatTensor
+			score += [cur_score]
+			pred += [cur_pred]
+			# make cur_input from cur_pred
+			cur_input = Variable(cur_pred.unsqueeze(1)) # N x 1
+		score = torch.stack(score, 0).t() # N x max_decode_length, torch.FloatTensor
+		pred = torch.stack(pred, 0).t() # N x max_decode_length, torch.LongTensor
+		self.train()
+		return score, pred
 
 
 class Seq2SeqPyTorch(nn.Module):

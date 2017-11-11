@@ -34,22 +34,27 @@ parser.add_argument("-src_num_layers", type=int, default=2)
 parser.add_argument("-tgt_num_layers", type=int, default=1)
 parser.add_argument("-batch_first", type=bool, default=True)
 parser.add_argument("-dropout", type=float, default=0)
+parser.add_argument("-max_decode_length", type=int, default=60)
 
 opts = parser.parse_args()
 src_dict = Dict(opts, opts.srcDictPath)
 tgt_dict = Dict(opts, opts.tgtDictPath)
 
 seq2seq_me = Seq2Seq_MaximumEntropy(opts, src_dict, tgt_dict)
-# seq2seq_me.load_state_dict(torch.load(model_path)['model_state_dict'])
+seq2seq_me.load_state_dict(torch.load(model_path)['model_state_dict'])
 print(seq2seq_me)
 
 dev_dataset = torch.load(opts.devDatasetPath)
 dev_dataset.set_batch_size(4)
 data_symbol, data_id, data_mask, data_lens = dev_dataset[0]
-print(type(data_symbol)) # tuple of str
-print(data_symbol)
-print(data_id[0])
-print(data_id[1])
+# print(type(data_symbol)) # tuple of str
+# print(data_symbol)
+# print(data_id[0])
+# print(data_id[1])
 
 src_id = data_id[0]
-seq2seq_me.greedy_search()
+src_id_var = Variable(src_id)
+# print(src_id.size())
+# print(src_id)
+score, pred = seq2seq_me.greedy_search(src_id_var, opts.max_decode_length)
+print(pred)

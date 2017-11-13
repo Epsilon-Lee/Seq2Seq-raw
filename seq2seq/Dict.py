@@ -80,6 +80,15 @@ class Dict(object):
 				idxSeq.append(self.symbol2idx['<unk>'])
 		return idxSeq
 
+	def convert_id_lst_to_symbol_lst(self, id_lst):
+		symbol_lst = []
+		for id_seq in id_lst:
+			first_eos_idx = id_seq.index(self.tgt_specials['</s>'])
+			id_seq_pruned = id_seq[:first_eos_idx]
+			symbol_seq = self.convertIdxSeq2SymbolSeq(id_seq_pruned)
+			symbol_lst.append(symbol_seq)
+		return symbol_lst
+
 	def size(self):
 		return len(self.symbol2idx)
 

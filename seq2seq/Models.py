@@ -149,6 +149,7 @@ class Seq2Seq(nn.Module):
 	def MemoryEfficientMLELoss(self, probs, tgtInputs):
 		pass
 
+
 class Seq2Seq_MaximumEntropy(nn.Module):
 	def __init__(self, opts, src_dict, tgt_dict):
 		"""Initialize Model"""
@@ -242,9 +243,10 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 		dec_hc_0 = dec_hc_0.view(dec_hc_0.size(0), -1, self.tgt_hid_size)
 		dec_hc_0 = dec_hc_0.transpose(0, 1)
 		dec_hc_0 = dec_hc_0.contiguous().view(2, self.tgt_num_layers, dec_hc_0.size(1), self.tgt_hid_size)
-		dec_h_0, dec_c_0 = dec_hc_0.split(1) # dec_h_0: nL x bz x hz
-		# dec_h_0 = dec_h_0.squeeze(0)
-		# dec_c_0 = dec_c_0.squeeze(0)
+		dec_h_0, dec_c_0 = dec_hc_0.split(1) # dec_h_0: 1 x nL x bz x hz
+		# print(dec_hc_0.size(), dec_h_0.size(), dec_c_0.size())
+		dec_h_0 = dec_h_0.squeeze(0) # nL x bz x hz
+		dec_c_0 = dec_c_0.squeeze(0)
 
 		tgt_idxs = tgt_idxs[:, :-1].contiguous()
 		# print(tgt_idxs.size())
@@ -282,6 +284,8 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 		"""
 		self.eval()
 		# get encoder final state
+		if self.use_gpu：
+			src_id = src_id.cuda()
 		src_id_emb = self.src_emb(src_id) # N x seq_len x embz
 		src_context, (src_h_n, src_c_0) = self.encoder(src_id_emb) # src_h_n: (n_layers x n_dir) x N x hz_src
 		src_h_n = src_h_n.view(
@@ -305,7 +309,9 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 		batch_size = src_id.size(0) # int
 		# `cur` means current
 		cur_input = Variable(torch.LongTensor(batch_size, 1).fill_(self.tgt_dict.tgt_specials['<s>'])) # N x 1
-		h_n, c_n = tgt_h_0, tgt_c_0
+		if self.use_gpu:
+			cur_input = cur_input.cuda()
+		h_n, c_n = tgt_h_0.contiguous(), tgt_c_0.contiguous()
 		score = [] # to store negative log likelihood for every predicted id
 		pred = [] # to store decoded id
 		for time_step in xrange(max_decode_length):
@@ -319,11 +325,95 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 			pred += [cur_pred]
 			# make cur_input from cur_pred
 			cur_input = Variable(cur_pred.unsqueeze(1)) # N x 1
+			if self.use_gpu:
+				cur_input = cur_input.cuda()
 		score = torch.stack(score, 0).t() # N x max_decode_length, torch.FloatTensor
 		pred = torch.stack(pred, 0).t() # N x max_decode_length, torch.LongTensor
 		self.train()
 		return score, pred
 
+	def beam_search_per_example(self, src_id, beam_size, max_decode_length):
+		"""Beam search decoding in per-example mode
+
+		Argument
+		----------
+		src_id : Variable(torch.LongTensor)
+			src_id has shape: N x seq_len
+
+		beam_size : int
+			beam size
+
+		max_decode_length : int
+			the maximum number of steps to decode
+
+		Return
+		----------
+		score : list
+			a list of float numbers which relects the total log-likelihood score
+			for each example, list has the length of N x beam_size
+
+		pred  : torch.LongTensor
+			the size of the tensor is N x beam_size x max_decode_length
+		"""
+		self.eval()
+		if self.use_gpu:
+			src_id = src_id.cuda()
+		# encoder computation
+		src_emb = self.src_emb(src_id) # N x seq_len x embz
+		src_context, (src_h_n, src_c_0) = self.encoder(src_emb) # src_h_n: (nL x nDir) x N x hz
+		src_h_n = src_h_n.view(
+			self.src_num_layers,
+			self.src_num_directions,
+			-1,
+			self.src_hid_size
+		).transpose(1, 2).contiguous().view(
+			self.src_num_layers,
+			-1,
+			self.src_num_directions * self.src_hid_size
+		)[self.src_num_layers - 1] # N x (nDir x hz)
+		tgt_hc_0 = self.enchid_to_dechid(src_h_n) # N x (2 x nL x hz)
+		tgt_hc_0 = tgt_hc_0.view(
+			-1,
+			2 * self.tgt_num_layers,
+			self.tgt_hid_size
+		).transpose() # (2 * nL) x N x hz
+		tgt_h_0, tgt_c_0 = tgt_hc_0.contiguous().view(
+			2,
+			self.tgt_num_layers,
+			-1,
+			self.tgt_hid_size
+		).split(1)
+		tgt_h_0 = tgt_h_0.squeeze(0) # nL x N x hz
+		tgt_c_0 = tgt_c_0.squeeze(0)
+		for idx in range(tgt_h_0.size(1)):
+			h_0 = tgt_h_0[:, idx, :].unsqueeze(1) # nL x 1 x hz
+			c_0 = tgt_h_0[:, idx, :].unsqueeze(1) # nL x 1 x hz
+			h_0_lst = [h_0 for i in range(beam_size)]
+			c_0_lst = [c_0 for i in range(beam_size)]
+			h_0 = torch.stack(h_0_lst, 1) # nL x beam_size x hz
+			c_0 = torch.stack(c_0_lst, 1)
+
+			# beam search
+			cur_input = Variable(
+				torch.LongTensor(
+					beam_size,
+					1
+				).fill_(self.tgt_dict.tgt_specials['<s>'])
+			) # beam_size x 1
+			h_t, c_t = h_0, c_0
+			for time_step in range(max_decode_length):
+				# forward onestep
+				cur_input_emb = self.tgt_emb(cur_input) # beam_size x 1 x embz
+				cur_output, (h_tp1, c_tp1) = self.decoder(
+					cur_input_emb, (h_t, c_t)
+				) # beam_size x 1 x hz, nL x beam_size x hz, _ 
+				cur_output = self.decoder_transform(cur_output)
+				cur_readout = self.readout(cur_output) # beam_size x 1 x vocab_size
+
+	def beam_search_batch(self, src_id, max_decode_length):
+		"""Batch-mode beam search decoding"""
+
+		
 
 class Seq2SeqPyTorch(nn.Module):
 	"""Container module with an encoder, deocder, embeddings."""

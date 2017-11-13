@@ -3,7 +3,19 @@ import random
 import math
 
 class SentencePairDataset(object):
+	"""Dataset for sentence pairs
 
+	The class is used to hold data which is in the form of
+	sentence pairs. It supports:
+
+	- constructing dataset from corpus path and dictionary: `make_dataset`
+	- quering batch number: `__len__`
+	- setting curriculum training mode: `set_curriculum`
+	- shuffling: `shuffle`
+	- accessing batch by index: `__getitem__`
+	- making batch data: `_batchify`
+
+	"""
 	MAX_LEN = 1000
 
 	def __init__(self):
@@ -114,6 +126,19 @@ class SentencePairDataset(object):
 		return data_symbol_batch, data_id_batch, data_mask_batch, data_lens_batch
 
 	def __getitem__(self, idx):
+		"""Get a batch of data of sentence pairs
+
+		Argument
+		----------
+		idx : int
+
+		Return
+		----------
+		data_symbol_batch : 
+		data_id_batch     : torch.LongTensor
+		data_mask_batch   : torch.FloatTensor
+		data_lens_batch   : list
+		"""
 		idx = self.order[idx]
 		bz = self.batch_size
 		data_symbol_batch = self.data_symbol[idx * bz : (idx + 1) * bz]

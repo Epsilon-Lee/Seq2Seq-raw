@@ -72,7 +72,7 @@ tgtDictionary = Dict(opts, opts.tgtDictPath)
 # load dataset
 trainDataset = torch.load(opts.trainDatasetPath)
 trainDataset.set_curriculum()
-# devDataset = torch.load(opts.devDatasetPath)
+devDataset = torch.load(opts.devDatasetPath)
 # testDataset = torch.load(opts.testDatasetPath)
 
 trainDataset.set_batch_size(opts.batch_size)
@@ -102,8 +102,8 @@ print(seq2seq)
 # print(list(seq2seq.parameters()))
 
 # create optimizer
-sgdOptimizer = optim.SGD(seq2seq.parameters(), lr=opts.lr)
-# sgdOptimizer = optim.Adam(seq2seq.parameters(), lr=opts.lr)
+optimizer = optim.SGD(seq2seq.parameters(), lr=opts.lr)
+# optimizer = optim.Adam(seq2seq.parameters(), lr=opts.lr)
 
 loss_record = 0.
 start_time = time.time()
@@ -143,7 +143,18 @@ for epochIdx in range(1, opts.max_epoch + 1):
 		logProbs = seq2seq(src_batch, tgt_batch)
 		loss_batch = seq2seq.MLELoss(logProbs, tgt_batch)
 		loss_batch.backward()
-		sgdOptimizer.step()
+
+		# gradient clipping
+		grad_norms = []
+		params = seq2seq.parameters()
+		for param in params:
+			grad_norm_var = param.grad.norm()
+			grad_norms.append(grad_norm_var.data[0])
+			if grad_norm > opts.grad_threshold:
+				param.grad.data = param.grad.data / grad_norm_var.data
+		grad_norm_avg = sum(grad_norms) / len(grad_norms)
+
+		optimizer.step()
 
 		# model predict: greedy
 		maxProbs, pred_idxs = torch.max(logProbs.data, 2) # (bz x (seq_len - 1)) x vocab_size
@@ -163,15 +174,16 @@ for epochIdx in range(1, opts.max_epoch + 1):
 		cur_acc = 1. * acc_count / word_count_batch
 		if (idx + 1) % opts.log_interval == 0:
 			# print(tgtBatch)
-			print("Epoch %d Batch %d loss %f loss_avg %f acc: %f acc_avg: %f time elapsed: %f" 
-					  % (epochIdx, idx + 1, 
-						loss_record / word_count_batch, 
-						# loss_record, 
-						# word_count_batch, 
-						# word_count_with_padding, 
-						loss_accum / word_count_total, 
-						acc_count * 1. / word_count_batch, 
-						acc_count_total * 1. / word_count_total, 
+			print("Epoch %d Batch %d loss %f loss_avg %f acc: %f acc_avg: %f grad_norm_avg %f time elapsed: %f" 
+					  % (epochIdx, idx + 1,
+						loss_record / word_count_batch,
+						# loss_record,
+						# word_count_batch,
+						# word_count_with_padding,
+						loss_accum / word_count_total,
+						acc_count * 1. / word_count_batch,
+						acc_count_total * 1. / word_count_total,
+						grad_norm_avg,
 						time.time() - start_time))
 			f_log.write("Epoch %d Batch %d loss %f loss_avg %f acc: %f acc_avg: %f time elapsed: %f\n" 
 					  % (epochIdx, idx + 1, 

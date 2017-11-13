@@ -36,25 +36,26 @@ parser.add_argument("-bidirectional", type=bool, default=True)
 parser.add_argument("-src_num_layers", type=int, default=2)
 parser.add_argument("-tgt_num_layers", type=int, default=1)
 parser.add_argument("-batch_first", type=bool, default=True)
-parser.add_argument("-dropout", type=float, default=0)
+parser.add_argument("-dropout", type=float, default=0.)
+parser.add_argument("-grad_threshold", type=float, default=5.)
 
 # Training options
 parser.add_argument("-max_epoch", type=int, default=100)
-parser.add_argument("-batch_size", type=int, default=16)
-parser.add_argument("-lr", type=float, default=0.01)
+parser.add_argument("-batch_size", type=int, default=64)
+parser.add_argument("-lr", type=float, default=1.)
 parser.add_argument("-cuda", type=int, default=1)
 parser.add_argument("-use_gpu", type=int, default=1)
 parser.add_argument("-gpuid", type=int, default=2)
 
 # Save model path
 parser.add_argument("-save_path", type=str, default="../Models/Seq2Seq-raw_Models")
-parser.add_argument("-model_prefix", type=str, default="seq2seq_me_bz16_mle")
+parser.add_argument("-model_prefix", type=str, default="seq2seq_me_bz64_mle")
 
 # Logging options
 parser.add_argument("-log_interval", type=int, default=16)
 parser.add_argument("-visualize_interval", type=int, default=500)
 parser.add_argument("-vis_num", type=int, default=8)
-parser.add_argument("-log_file_path", type=str, default="../Logs/Seq2Seq-raw/Seq2SeqME_bz16_mle.txt")
+parser.add_argument("-log_file_path", type=str, default="../Logs/Seq2Seq-raw/Seq2SeqME_bz64_mle.txt")
 
 
 opts = parser.parse_args()
@@ -150,7 +151,7 @@ for epochIdx in range(1, opts.max_epoch + 1):
 		for param in params:
 			grad_norm_var = param.grad.norm()
 			grad_norms.append(grad_norm_var.data[0])
-			if grad_norm > opts.grad_threshold:
+			if grad_norm_var.data[0] > opts.grad_threshold:
 				param.grad.data = param.grad.data / grad_norm_var.data
 		grad_norm_avg = sum(grad_norms) / len(grad_norms)
 
@@ -222,11 +223,11 @@ for epochIdx in range(1, opts.max_epoch + 1):
 	# save model every epoch
 	save_model_dict = {}
 	model_state_dict = seq2seq.state_dict()
-	saveModelDict['model_state_dict'] = model_state_dict
-	saveModelDict['epoch'] = epochIdx
+	save_model_dict['model_state_dict'] = model_state_dict
+	save_model_dict['epoch'] = epochIdx
 	model_string = opts.model_prefix + "-%d-acc_%.4f.pt" % (epochIdx, acc_count_total * 1. / word_count_total)
 	torch.save(
-		saveModelDict,
+		save_model_dict,
 		os.path.join(opts.save_path, model_string)
 	)
 

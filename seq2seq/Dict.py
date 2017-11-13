@@ -83,10 +83,13 @@ class Dict(object):
 	def convert_id_lst_to_symbol_lst(self, id_lst):
 		symbol_lst = []
 		for id_seq in id_lst:
-			first_eos_idx = id_seq.index(self.tgt_specials['</s>'])
-			id_seq_pruned = id_seq[:first_eos_idx]
+			if self.tgt_specials['</s>'] in id_seq:
+				first_eos_idx = id_seq.index(self.tgt_specials['</s>'])
+				id_seq_pruned = id_seq[:first_eos_idx]
+			else:
+				id_seq_pruned = id_seq
 			symbol_seq = self.convertIdxSeq2SymbolSeq(id_seq_pruned)
-			symbol_lst.append(symbol_seq)
+			symbol_lst.append(" ".join(symbol_seq))
 		return symbol_lst
 
 	def size(self):

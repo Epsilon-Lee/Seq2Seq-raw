@@ -240,6 +240,7 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 		enc_h_n = enc_h_n.contiguous().view(enc_h_n.size(0), enc_h_n.size(1), -1)
 		enc_h_n_last_layer = enc_h_n[self.src_num_directions - 1].contiguous()
 		dec_hc_0 = self.enchid_to_dechid(enc_h_n_last_layer) # bz x (nL x hz x 2)
+		dec_hc_0 = F.tanh(dec_hc_0)
 		dec_hc_0 = dec_hc_0.view(dec_hc_0.size(0), -1, self.tgt_hid_size)
 		dec_hc_0 = dec_hc_0.transpose(0, 1)
 		dec_hc_0 = dec_hc_0.contiguous().view(2, self.tgt_num_layers, dec_hc_0.size(1), self.tgt_hid_size)

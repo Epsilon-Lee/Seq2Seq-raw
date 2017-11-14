@@ -260,7 +260,13 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 
 	def MLELoss(self, dec_logit, tgt_input):
 		tgt = tgt_input[0][:, 1:].contiguous()
-		return self.criterion(dec_logit.view(dec_logit.size(0) * dec_logit.size(1), -1), tgt.view(-1))
+		return self.criterion(
+			dec_logit.view(
+				dec_logit.size(0) * dec_logit.size(1),
+				-1
+			),
+			tgt.view(-1)
+		)
 
 	def greedy_search(self, src_id, max_decode_length):
 		"""Batch mode greedy search to get the prediction
@@ -285,7 +291,7 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 		"""
 		self.eval()
 		# get encoder final state
-		if self.use_gpu：
+		if self.use_gpu:
 			src_id = src_id.cuda()
 		src_id_emb = self.src_emb(src_id) # N x seq_len x embz
 		src_context, (src_h_n, src_c_0) = self.encoder(src_id_emb) # src_h_n: (n_layers x n_dir) x N x hz_src
@@ -373,6 +379,7 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 			self.src_num_directions * self.src_hid_size
 		)[self.src_num_layers - 1] # N x (nDir x hz)
 		tgt_hc_0 = self.enchid_to_dechid(src_h_n) # N x (2 x nL x hz)
+		tgt_hc_0 = F.tanh(tgt_hc_0)
 		tgt_hc_0 = tgt_hc_0.view(
 			-1,
 			2 * self.tgt_num_layers,
@@ -386,6 +393,8 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 		).split(1)
 		tgt_h_0 = tgt_h_0.squeeze(0) # nL x N x hz
 		tgt_c_0 = tgt_c_0.squeeze(0)
+		scores = []
+		preds = []
 		for idx in range(tgt_h_0.size(1)):
 			h_0 = tgt_h_0[:, idx, :].unsqueeze(1) # nL x 1 x hz
 			c_0 = tgt_h_0[:, idx, :].unsqueeze(1) # nL x 1 x hz
@@ -394,7 +403,7 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 			h_0 = torch.stack(h_0_lst, 1) # nL x beam_size x hz
 			c_0 = torch.stack(c_0_lst, 1)
 
-			# beam search
+			# prepare first step forward
 			cur_input = Variable(
 				torch.LongTensor(
 					beam_size,
@@ -402,18 +411,43 @@ class Seq2Seq_MaximumEntropy(nn.Module):
 				).fill_(self.tgt_dict.tgt_specials['<s>'])
 			) # beam_size x 1
 			h_t, c_t = h_0, c_0
+
+			# variable used to store total score and predicted sequence of each beam
+			beam_score = torch.FloatTensor(beam_size).fill_(0) # beam_size
+			pred_total = torch.LongTensor() # torch.LongTensor with no dimension
 			for time_step in range(max_decode_length):
-				# forward onestep
+				# forward one-step
 				cur_input_emb = self.tgt_emb(cur_input) # beam_size x 1 x embz
 				cur_output, (h_tp1, c_tp1) = self.decoder(
-					cur_input_emb, (h_t, c_t)
+					cur_input_emb,
+					(h_t, c_t)
 				) # beam_size x 1 x hz, nL x beam_size x hz, _ 
 				cur_output = self.decoder_transform(cur_output)
 				cur_readout = self.readout(cur_output) # beam_size x 1 x vocab_size
+				cur_log_likelihood = F.log_softmax(cur_readout).data.squeeze(1) # beam_size x vocab_size
+				score, pred = torch.topk(cur_log_likelihood, beam_size, dim=1) # beam_size x beam_size
+				score_total = score + beam_score.unsqueeze(1) # beam_size x beam_size
+				score_flatten = score.view(-1) # beam_size^2
+				pred_flatten = pred.view(-1) # beam_size^2
+				score_cur_beam, pred_step_idx = torch.topk(score_flatten, beam_size, dim=0) # beam_size
+				pred_step = pred.index_select(pred_step_idx)
+				beam_score = beam_score[pred_step_idx / beam_size]
+				beam_score += score_cur_beam
+				if len(pred_total.size()) is 0:
+					pred_total = torch.cat([pred_total, pred_step.unsqueeze(1)], dim=1) # N x timestep --> N x (timestep + 1)
+				else:
+					pred_total = pred_total[pred_step_idx / beam_size, :]
+					pred_total = torch.cat([pred_total, pred_step.unsqueeze(1)], dim=1)
+				cur_input = pred_step
+				h_t = h_t[:, pred_step_idx, :]
+				c_t = c_t[:, pred_step_idx, :]
+			scores += [beam_score]
+			preds += [pred_total] 
+
 
 	def beam_search_batch(self, src_id, max_decode_length):
 		"""Batch-mode beam search decoding"""
-
+		pass
 		
 
 class Seq2SeqPyTorch(nn.Module):
@@ -567,7 +601,13 @@ class Seq2SeqPyTorch(nn.Module):
 		return decoder_logit
 
 	def mle_loss(self, dec_logit, tgt):
-		return self.criterion(dec_logit.contiguous().view(dec_logit.size(0) * dec_logit.size(1), -1), tgt.contiguous().view(-1))
+		return self.criterion(
+			dec_logit.contiguous().view(
+				dec_logit.size(0) * dec_logit.size(1),
+				-1
+			),
+			tgt.contiguous().view(-1)
+		)
 
 	def decode(self, logits):
 		"""Return probability distribution over words."""

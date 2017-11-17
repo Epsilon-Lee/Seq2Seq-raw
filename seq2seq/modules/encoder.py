@@ -10,22 +10,33 @@ class Encoder(nn.Module):
 		2). enc_h_n, enc_c_n (if use LSTM)
 	"""
 
-	def __init__(self, config, encoder_dict):
+	def __init__(
+		self,
+		encoder_dict,
+		emb_size,
+		hid_size,
+		bidirectional,
+		rnn_cell_type,
+		is_packed,
+		batch_first,
+		num_layers,
+		dropout
+	):
 		self.dict = encoder_dict
 		self.vocab_size = src_dict.size()
-		self.emb_size = config['encoder']['emb_size']
-		self.hid_size = config['encoder']['hid_size']
-		self.bidirectional = config['encoder']['bidirectional']
+		self.emb_size = emb_size
+		self.hid_size = hid_size
+		self.bidirectional = bidirectional
 		if self.bidirectional:
-			self.num_dir = 2
+			self.num_dirs = 2
 		else:
-			self.num_dir = 1
+			self.num_dirs = 1
 		# 'rnn', 'gru', 'lstm'
-		self.rnn_cell_type = config['encoder']['rnn_cell_type']
-		self.is_packed = config['encoder']['is_packed']
-		self.batch_first = config['encoder']['batch_first']
-		self.num_layers = config['encoder']['num_layers']
-		self.dropout = config['encoder']['dropout']
+		self.rnn_cell_type = rnn_cell_type
+		self.is_packed = is_packed
+		self.batch_first = batch_first
+		self.num_layers = num_layers
+		self.dropout = dropout
 		
 		self.emb = nn.Embedding(
 			self.vocab_size,

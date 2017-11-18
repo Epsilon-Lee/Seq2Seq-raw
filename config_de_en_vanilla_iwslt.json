@@ -1,0 +1,45 @@
+{
+  "training": {
+    "optimizer": "adam",
+    "clip_c": 1,
+    "lrate": 0.0001
+  },
+  "management": {
+    "monitor_loss": 3200,
+    "print_samples": 10000,
+    "checkpoint_freq": 10000,
+    "gpuid": 1
+  },
+  "data": {
+    "src": "./IWSLT/train.de.tok",
+    "trg": "./IWSLT/train.en.tok",
+    "test_src": "./IWSLT/dev.de.tok",
+    "test_trg": "./IWSLT/dev.en.tok",
+    "batch_size": 64,
+    "n_words_trg": 30000,
+    "valid_batch_size": 128,
+    "n_words_src": 30000,
+    "max_src_length": 60,
+    "max_trg_length": 60,
+    "task": "translation",
+    "save_dir": "../Models/Seq2Seq-PyTorch",
+    "load_dir": ""
+  },
+  "model": {
+    "dim": 512,
+    "dim_trg": 512,
+    "use_dropout": false,
+    "dim_word_src": 256,
+    "n_words_src": 30000,
+    "n_words": 30000,
+    "dim_word_trg": 256,
+    "n_layers_src": 2,
+    "n_layers_trg": 1,
+    "bidirectional": true,
+    "src_lang": "de",
+    "trg_lang": "en",
+    "decode": "greedy",
+    "seq2seq": "vanilla",
+    "optimizer": "adam"
+  }
+}

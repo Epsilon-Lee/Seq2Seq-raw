@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
-from nn.utils.rnn import pack_padded_sequence as pack
-from nn.utils.rnn import pad_packed_sequence as unpack
+from torch.nn.utils.rnn import pack_padded_sequence as pack
+from torch.nn.utils.rnn import pad_packed_sequence as unpack
+
 
 class Encoder(nn.Module):
 	"""Encoder class which processes sequences of input
@@ -13,6 +14,7 @@ class Encoder(nn.Module):
 	def __init__(
 		self,
 		encoder_dict,
+		padding_idx,
 		emb_size,
 		hid_size,
 		bidirectional,
@@ -23,7 +25,8 @@ class Encoder(nn.Module):
 		dropout
 	):
 		self.dict = encoder_dict
-		self.vocab_size = src_dict.size()
+		self.vocab_size = self.dict.size()
+		self.padding_idx = padding_idx
 		self.emb_size = emb_size
 		self.hid_size = hid_size
 		self.bidirectional = bidirectional
@@ -38,10 +41,12 @@ class Encoder(nn.Module):
 		self.num_layers = num_layers
 		self.dropout = dropout
 		
+		super(Encoder, self).__init__()
+
 		self.emb = nn.Embedding(
 			self.vocab_size,
 			self.emb_size,
-			self.dict.src_specials['<pad>']
+			self.padding_idx
 		)
 
 		if self.rnn_cell_type == 'rnn':
@@ -53,7 +58,7 @@ class Encoder(nn.Module):
 				dropout=self.dropout,
 				bidirectional=self.bidirectional
 			)
-		elif: self.rnn_cell_type == 'lstm':
+		elif self.rnn_cell_type == 'lstm':
 			self.rnn = nn.LSTM(
 				self.emb_size,
 				self.hid_size,

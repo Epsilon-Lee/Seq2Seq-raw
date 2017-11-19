@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
+
 class BahdahnauAttention(nn.Module): 
 	"""In the original paper's appendix, the decoder in their
 	paper uses gated recurrent unit (GRU) as cell, and adds context
@@ -54,12 +55,12 @@ class BahdahnauAttention(nn.Module):
 		Args
 		----------
 		s_prev    : N x dec_H
-		enc_hids  : N x L x enc_H
+		enc_hids  : N x enc_L x enc_H
 
 		Return
 		----------
-		c_curr    : N x dec_H
-		att_curr  : N x L
+		c_curr    : N x enc_H
+		att_curr  : N x enc_L
 		"""
 		s_prev_projected = self.project_dec_hids(s_prev).unsqueeze(1) # N x 1 x dec_H
 		enc_hids_projected = self.projct_enc_hids(enc_hids) # N x L x dec_H
@@ -114,7 +115,7 @@ class GlobalAttention(nn.Module):
 		if self.attention_type == 'dot' and self.enc_hid_size != self.dec_hid_size:
 			assert False, "When dot attention, encoder, decoder should have same hidden size"
 			
-		elif self.attention_type == 'bilinear'
+		elif self.attention_type == 'bilinear':
 			self.project_dec_hids = nn.Linear(
 				self.dec_hid_size,
 				self.enc_hid_size

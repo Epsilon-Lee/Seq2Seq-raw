@@ -134,10 +134,20 @@ class SentencePairDataset(object):
 
 		Return
 		----------
-		data_symbol_batch : 
-		data_id_batch     : torch.LongTensor
-		data_mask_batch   : torch.FloatTensor
-		data_lens_batch   : list
+		data_symbol_batch : list
+			list of tuple (src_symbol, tgt_symbol)
+
+		data_id_batch     : tuple (torch.LongTensor, torch.LongTensor)
+			tuple of src_id, tgt_id each of which is a torch.LongTensor with
+			size: bz x len
+
+		data_mask_batch   : (torch.FloatTensor, torch.FloatTensor)
+			tuple of src_mask, tgt_mask each of which is a torch.FloatTensor
+			with size: bz x len
+
+		data_lens_batch   : (list, list)
+			tuple of list: src_lens, tgt_lens each has length bz
+			
 		"""
 		idx = self.order[idx]
 		bz = self.batch_size

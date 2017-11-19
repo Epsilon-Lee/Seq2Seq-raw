@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class Bridge(nn.Module):
 	"""A bridge module which connects encoder's output/last states
 	to decoder's input/initial states.
@@ -33,8 +34,11 @@ class Bridge(nn.Module):
 		self.decoder_hid_size = decoder_hid_size
 		self.decoder_rnn_cell_type = decoder_rnn_cell_type
 
-		if self.encoder_rnn_cell_type is not self.decoder_rnn_cell_type:
-			assert(False, "encoder, decoder rnn cell type must match")
+		# `is` is identity test, while `==` is equality test
+		if self.encoder_rnn_cell_type != self.decoder_rnn_cell_type:
+			assert False, "encoder, decoder rnn cell type must match"
+
+		super(Bridge, self).__init__()
 
 		self.bridge = nn.Linear(
 			self.encoder_num_dirs * self.encoder_hid_size,

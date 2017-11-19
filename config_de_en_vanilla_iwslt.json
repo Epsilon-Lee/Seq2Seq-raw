@@ -1,45 +1,46 @@
 {
   "training": {
     "optimizer": "adam",
-    "clip_c": 1,
-    "lrate": 0.0001
+    "grad_threshold": 5.0,
+    "lr": 0.0001,
+    "max_epoch": 30
   },
   "management": {
-    "monitor_loss": 3200,
-    "print_samples": 10000,
-    "checkpoint_freq": 10000,
-    "gpuid": 1
+    "logfile_path": "../Logs/Seq2Seq-raw",
+    "logging__interval": 64,
+    "print_samples": 3200,
+    "gpuid": 0
   },
   "data": {
-    "src": "./IWSLT/train.de.tok",
-    "trg": "./IWSLT/train.en.tok",
-    "test_src": "./IWSLT/dev.de.tok",
-    "test_trg": "./IWSLT/dev.en.tok",
-    "batch_size": 64,
-    "n_words_trg": 30000,
-    "valid_batch_size": 128,
-    "n_words_src": 30000,
-    "max_src_length": 60,
-    "max_trg_length": 60,
-    "task": "translation",
-    "save_dir": "../Models/Seq2Seq-PyTorch",
+    "train_path": "./IWSLT/trainDataset.pt",
+    "dev_path": "./IWSLT/devDataset.pt",
+    "test_path": "./IWSLT/testDataset.pt",
+    "src_dict_path": "./IWSLT/de.30k.dict",
+    "tgt_dict_path": "./IWSLT/en.30k.dict",
+    "save_dir": "../Models/Seq2Seq-raw",
     "load_dir": ""
   },
   "model": {
-    "dim": 512,
-    "dim_trg": 512,
-    "use_dropout": false,
-    "dim_word_src": 256,
-    "n_words_src": 30000,
-    "n_words": 30000,
-    "dim_word_trg": 256,
-    "n_layers_src": 2,
-    "n_layers_trg": 1,
-    "bidirectional": true,
-    "src_lang": "de",
-    "trg_lang": "en",
-    "decode": "greedy",
-    "seq2seq": "vanilla",
-    "optimizer": "adam"
+    "encoder": {
+      "emb_size": 256,
+      "hid_size": 512,
+      "bidirectional": 1,
+      "rnn_cell_type": "gru",
+      "is_packed": 1,
+      "batch_first": 1,
+      "num_layers": 2,
+      "dropout": 0
+    },
+    "decoder": {
+      "emb_size": 256,
+      "hid_size": 512,
+      "rnn_cell_type": "gru",
+      "num_layers": 2,
+      "dropout": 0
+    },
+    "generator": {
+      "dim_lst": [512],
+      "num_layers": 1
+    }
   }
 }

@@ -23,7 +23,7 @@ parser.add_argument("-srcDictPath", type=str, default="../IWSLT/de.30k.dict")
 parser.add_argument("-tgtDictPath", type=str, default="../IWSLT/en.30k.dict")
 
 parser.add_argument("-gpuid", type=int, default=2)
-parser.add_argument("-use_gpu", type=int, default=1)
+parser.add_argument("-use_gpu", type=int, default=0)
 
 parser.add_argument("-src_emb_size", type=int, default=256)
 parser.add_argument("-tgt_emb_size", type=int, default=256)

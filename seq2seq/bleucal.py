@@ -5,6 +5,9 @@ import os
 import math
 
 class BleuCalculator():
+	
+	EPSILON = sys.float_info.epsilon
+
 	def __init__(self, cand_path, ref_dir):
 		self.cand_path = cand_path
 		self.ref_dir = ref_dir
@@ -82,10 +85,10 @@ class BleuCalculator():
 		bp = 1 if hyp_len > ref_len else math.exp(1. - 1./ratio)
 		bleu = bp * math.exp(
 			(
-			math.log(unigram_p)
-			+ math.log(bigram_p)
-			+ math.log(trigram_p)
-			+ math.log(fourgram_p)
+			math.log(unigram_p + self.EPSILON)
+			+ math.log(bigram_p + self.EPSILON)
+			+ math.log(trigram_p + self.EPSILON)
+			+ math.log(fourgram_p + self.EPSILON)
 			) / 4.
 		)
 
@@ -289,4 +292,4 @@ def unit_test_1():
 	print nu, de, hl, rl
 
 if __name__ == '__main__':
-	unit_test_1() # passed
+	unit_test_1() # passedc	

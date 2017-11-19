@@ -4,10 +4,12 @@ from torch.autograd import Variable
 
 from seq2seq.Models import Seq2Seq, Seq2Seq_MaximumEntropy
 from seq2seq.Dict import Dict
+from seq2seq.bleucal import BleuCalculator
 
 import argparse
 import time
 import os
+from tqdm import tqdm
 # from datetime import datatime
 
 parser = argparse.ArgumentParser(description="train file options parser")
@@ -37,22 +39,25 @@ parser.add_argument("-src_num_layers", type=int, default=2)
 parser.add_argument("-tgt_num_layers", type=int, default=1)
 parser.add_argument("-batch_first", type=bool, default=True)
 parser.add_argument("-dropout", type=float, default=0.)
-parser.add_argument("-grad_threshold", type=float, default=5.)
+parser.add_argument("-grad_threshold", type=float, default=1.)
 
 # Training options
-parser.add_argument("-max_epoch", type=int, default=100)
+parser.add_argument("-max_epoch", type=int, default=50)
 parser.add_argument("-batch_size", type=int, default=64)
 parser.add_argument("-lr", type=float, default=1.)
 parser.add_argument("-cuda", type=int, default=1)
 parser.add_argument("-use_gpu", type=int, default=1)
-parser.add_argument("-gpuid", type=int, default=2)
+parser.add_argument("-gpuid", type=int, default=3)
+
+## Evaluation options
+parser.add_argument("-maximum_decode_length", type=int, default=60)
 
 # Save model path
 parser.add_argument("-save_path", type=str, default="../Models/Seq2Seq-raw_Models")
 parser.add_argument("-model_prefix", type=str, default="seq2seq_me_bz64_mle")
 
 # Logging options
-parser.add_argument("-log_interval", type=int, default=16)
+parser.add_argument("-log_interval", type=int, default=64)
 parser.add_argument("-visualize_interval", type=int, default=500)
 parser.add_argument("-vis_num", type=int, default=8)
 parser.add_argument("-log_file_path", type=str, default="../Logs/Seq2Seq-raw/Seq2SeqME_bz64_mle.txt")
@@ -74,9 +79,12 @@ tgtDictionary = Dict(opts, opts.tgtDictPath)
 trainDataset = torch.load(opts.trainDatasetPath)
 trainDataset.set_curriculum()
 devDataset = torch.load(opts.devDatasetPath)
+devDataset.set_curriculum()
 # testDataset = torch.load(opts.testDatasetPath)
 
+# set batch size for dataset
 trainDataset.set_batch_size(opts.batch_size)
+devDataset.set_batch_size(opts.batch_size)
 
 # devDataset.setBatchSize(opts.batch_size)
 # devDataset.sortByTgtLength()
@@ -92,7 +100,7 @@ print("Run on gpu            : %d" % opts.gpuid)
 # create model
 # print(tgtDictionary.size())
 seq2seq = Seq2Seq_MaximumEntropy(opts, srcDictionary, tgtDictionary)
-seq2seq.init_weight()
+seq2seq.init_weights()
 if opts.cuda:
 	seq2seq.cuda()
 print("Model architecture:")
@@ -101,7 +109,8 @@ print(seq2seq)
 
 # print("Model parameters:")
 # print(list(seq2seq.parameters()))
-
+# create blue calculator
+bleu_calculator = BleuCalculator(None, None)
 # create optimizer
 optimizer = optim.SGD(seq2seq.parameters(), lr=opts.lr)
 # optimizer = optim.Adam(seq2seq.parameters(), lr=opts.lr)
@@ -111,6 +120,7 @@ start_time = time.time()
 loss_accum = 0
 acc_count_total = 0
 word_count_total = 0
+max_bleu = 0.
 # open logging file
 if os.path.exists(opts.log_file_path):
 	f_log = open(opts.log_file_path, 'a')
@@ -120,7 +130,7 @@ f_log.write('------------------------Start Experiment------------------------\n'
 f_log.write(time.asctime(time.localtime(time.time())) + "\n")
 f_log.write('----------------------------------------------------------------\n')
 for epochIdx in range(1, opts.max_epoch + 1):
-	# print("trainDataset size: %d batches" % len(trainDataset))
+	print("trainDataset size: %d batches" % len(trainDataset))
 	for idx in range(len(trainDataset)):
 		data_symbol, data_id, data_mask, data_lens = trainDataset[idx]
 		bz_local = len(data_lens[0])
@@ -152,7 +162,7 @@ for epochIdx in range(1, opts.max_epoch + 1):
 			grad_norm_var = param.grad.norm()
 			grad_norms.append(grad_norm_var.data[0])
 			if grad_norm_var.data[0] > opts.grad_threshold:
-				param.grad.data = param.grad.data / grad_norm_var.data
+				param.grad.data = param.grad.data / grad_norm_var.data * opts.grad_threshold
 		grad_norm_avg = sum(grad_norms) / len(grad_norms)
 
 		optimizer.step()
@@ -218,17 +228,57 @@ for epochIdx in range(1, opts.max_epoch + 1):
 		f_log.flush()
 
 	# After each epoch, evaluate model in greedy mode
-
+	print('----------Evaluating the model on dev dataset----------')
+	f_log.write('----------Evaluating the model on dev dataset----------\n')
+	print('In greedy decoding......')
+	f_log.write('In greedy decoding......\n')
+	cand_lst = []
+	ref_lst = []
+	for idx in tqdm(xrange(len(devDataset))):
+		dev_data_symbol, dev_data_id, dev_data_mask, dev_data_lens = devDataset[idx]
+		src_id = Variable(dev_data_id[0])
+		_ , pred = seq2seq.greedy_search(src_id, opts.maximum_decode_length)
+		pred_lst = pred.tolist() # bz x max_dec_len
+		cand_lst_batch = tgtDictionary.convert_id_lst_to_symbol_lst(pred_lst)
+		cand_lst.extend(cand_lst_batch)
+		ref_lst_batch = [symbol_tuple[1] for symbol_tuple in dev_data_symbol]
+		ref_lst.extend(ref_lst_batch)
+		# print(len(ref_lst_batch), len(cand_lst_batch))
+	bleu_1_to_4, bleu, bp, hyp_ref_len, ratio = bleu_calculator.calc_bleu(cand_lst, [ref_lst])
+	f_log.write("%s %s, %s, %s, %s, bp=%s, ratio=%s\n"
+		% (format(bleu, "2.2%"),
+			format(bleu_1_to_4[0], "2.2%"),
+			format(bleu_1_to_4[1], "2.2%"),
+			format(bleu_1_to_4[2], "2.2%"),
+			format(bleu_1_to_4[3], "2.2%"),
+			format(bp, "0.4f"),
+			format(ratio, "0.4f"))
+	)
+	print("%s %s, %s, %s, %s, bp=%s, ratio=%s"
+		% (format(bleu, "2.2%"),
+			format(bleu_1_to_4[0], "2.2%"),
+			format(bleu_1_to_4[1], "2.2%"),
+			format(bleu_1_to_4[2], "2.2%"),
+			format(bleu_1_to_4[3], "2.2%"),
+			format(bp, "0.4f"),
+			format(ratio, "0.4f"))
+	)
+	if bleu > max_bleu:
+		max_bleu = bleu
 
 	# save model every epoch
-	save_model_dict = {}
-	model_state_dict = seq2seq.state_dict()
-	save_model_dict['model_state_dict'] = model_state_dict
-	save_model_dict['epoch'] = epochIdx
-	model_string = opts.model_prefix + "-%d-acc_%.4f.pt" % (epochIdx, acc_count_total * 1. / word_count_total)
-	torch.save(
-		save_model_dict,
-		os.path.join(opts.save_path, model_string)
-	)
+	# save_model_dict = {}
+	# model_state_dict = seq2seq.state_dict()
+	# save_model_dict['model_state_dict'] = model_state_dict
+	# save_model_dict['epoch'] = epochIdx
+	# model_string = opts.model_prefix + "-%d-acc_%.4f_devbleu%2.2f.pt" % (
+	# 	epochIdx,
+	# 	acc_count_total * 1. / word_count_total,
+	# 	bleu * 100
+	# )
+	# torch.save(
+	# 	save_model_dict,
+	# 	os.path.join(opts.save_path, model_string)
+	# )
 
 f_log.close()

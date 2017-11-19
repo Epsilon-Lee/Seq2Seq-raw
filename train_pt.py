@@ -173,10 +173,49 @@ for epochIdx in range(1, opts.max_epoch + 1):
 				print('tgt_gold: %s' % tgt_symbol)
 				print
 
+	# After each epoch, evaluate model in greedy mode
+	print('----------Evaluating the model on dev dataset----------')
+	f_log.write('----------Evaluating the model on dev dataset----------\n')
+	print('In greedy decoding......')
+	f_log.write('In greedy decoding......\n')
+	cand_lst = []
+	ref_lst = []
+	for idx in tqdm(xrange(len(devDataset))):
+		dev_data_symbol, dev_data_id, dev_data_mask, dev_data_lens = devDataset[idx]
+		src_id = Variable(dev_data_id[0])
+		_ , pred = seq2seq.greedy_search(src_id, opts.maximum_decode_length)
+		pred_lst = pred.tolist() # bz x max_dec_len
+		cand_lst_batch = tgtDictionary.convert_id_lst_to_symbol_lst(pred_lst)
+		cand_lst.extend(cand_lst_batch)
+		ref_lst_batch = [symbol_tuple[1] for symbol_tuple in dev_data_symbol]
+		ref_lst.extend(ref_lst_batch)
+		# print(len(ref_lst_batch), len(cand_lst_batch))
+	bleu_1_to_4, bleu, bp, hyp_ref_len, ratio = bleu_calculator.calc_bleu(cand_lst, [ref_lst])
+	f_log.write("%s %s, %s, %s, %s, bp=%s, ratio=%s\n"
+		% (format(bleu, "2.2%"),
+			format(bleu_1_to_4[0], "2.2%"),
+			format(bleu_1_to_4[1], "2.2%"),
+			format(bleu_1_to_4[2], "2.2%"),
+			format(bleu_1_to_4[3], "2.2%"),
+			format(bp, "0.4f"),
+			format(ratio, "0.4f"))
+	)
+	print("%s %s, %s, %s, %s, bp=%s, ratio=%s"
+		% (format(bleu, "2.2%"),
+			format(bleu_1_to_4[0], "2.2%"),
+			format(bleu_1_to_4[1], "2.2%"),
+			format(bleu_1_to_4[2], "2.2%"),
+			format(bleu_1_to_4[3], "2.2%"),
+			format(bp, "0.4f"),
+			format(ratio, "0.4f"))
+	)
+	if bleu > max_bleu:
+		max_bleu = bleu
+
 	# save model every epoch
-	saveModelDict = {}
-	model_state_dict = seq2seq.state_dict()
-	saveModelDict['model_state_dict'] = model_state_dict
-	saveModelDict['epoch'] = epochIdx
-	torch.save(saveModelDict, os.path.join(opts.save_path, str(epochIdx) + str(acc_count * 1./ word_count_batch)))
+	# saveModelDict = {}
+	# model_state_dict = seq2seq.state_dict()
+	# saveModelDict['model_state_dict'] = model_state_dict
+	# saveModelDict['epoch'] = epochIdx
+	# torch.save(saveModelDict, os.path.join(opts.save_path, str(epochIdx) + str(acc_count * 1./ word_count_batch)))
 

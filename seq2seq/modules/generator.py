@@ -54,12 +54,12 @@ class Generator(nn.Module):
 				)
 			)
 		)
-		seq_module_lst.append(
-			(
-				str(self.num_layers) + '-softmax',
-				nn.Softmax()
-			)
-		)
+		# seq_module_lst.append(
+		# 	(
+		# 		str(self.num_layers) + '-softmax',
+		# 		nn.Softmax()
+		# 	)
+		# )
 
 		self.ff_networks = nn.Sequential(
 			OrderedDict(seq_module_lst)
@@ -80,4 +80,6 @@ class Generator(nn.Module):
 			layer. 
 
 		"""
-		return self.ff_networks(dec_hids)
+		# dec_hids_2d = dec_hids.view(-1, dec_hids.size(2))
+		# return F.log_softmax(self.ff_networks(dec_hids))
+		return F.softmax(self.ff_networks(dec_hids))

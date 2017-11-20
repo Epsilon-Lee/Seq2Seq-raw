@@ -167,7 +167,8 @@ class BahdahnauAttentionSeq2Seq(nn.Module):
 			decoder_rnn_cell_type,
 			decoder_num_layers,
 			decoder_dropout,
-			encoder_hid_size
+			encoder_hid_size,
+			encoder_bidirectional
 		)
 
 		self.generator = Generator(
@@ -209,6 +210,8 @@ class BahdahnauAttentionSeq2Seq(nn.Module):
 			input_mask,
 			input_lengths
 		)
+
+		# print('type enc_hids: %s' % str(type(enc_hids)))
 
 		dec_init = self.bridge(enc_last)
 

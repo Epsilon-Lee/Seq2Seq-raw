@@ -27,9 +27,11 @@ class BahdahnauAttention(nn.Module):
 	def __init__(
 		self,
 		enc_hid_size,
-		dec_hid_size,
+		enc_num_dirs,
+		dec_hid_size
 	):
 		self.enc_hid_size = enc_hid_size
+		self.enc_num_dirs = enc_num_dirs
 		self.dec_hid_size = dec_hid_size
 
 		super(BahdahnauAttention, self).__init__()
@@ -39,8 +41,8 @@ class BahdahnauAttention(nn.Module):
 			self.dec_hid_size
 		)
 
-		self.projct_enc_hids = nn.Linear(
-			self.enc_hid_size,
+		self.project_enc_hids = nn.Linear(
+			self.enc_hid_size * self.enc_num_dirs,
 			self.dec_hid_size
 		)
 
@@ -55,7 +57,7 @@ class BahdahnauAttention(nn.Module):
 		Args
 		----------
 		s_prev    : N x dec_H
-		enc_hids  : N x enc_L x enc_H
+		enc_hids  : N x enc_L x (enc_H x enc_nDir)
 
 		Return
 		----------
@@ -63,11 +65,16 @@ class BahdahnauAttention(nn.Module):
 		att_curr  : N x enc_L
 		"""
 		s_prev_projected = self.project_dec_hids(s_prev).unsqueeze(1) # N x 1 x dec_H
-		enc_hids_projected = self.projct_enc_hids(enc_hids) # N x L x dec_H
+		# print(type(enc_hids))
+		# print(s_prev_projected.size())
+		# print(enc_hids.size())
+		enc_hids_projected = self.project_enc_hids(enc_hids) # N x L x dec_H
 		alpha_unnormalized = self.project_to_one_dim(
 			F.tanh(s_prev_projected + enc_hids_projected)
 		).squeeze(2) # N x L
 		alpha = F.softmax(alpha_unnormalized).unsqueeze(2) # N x L x 1
+		# print(alpha.size())
+		# print(enc_hids.size())
 		enc_hids = enc_hids * alpha # N x L x enc_H
 		c_curr = torch.sum(enc_hids, dim=1) # N x enc_H
 		att_curr = alpha.squeeze(2)
@@ -104,6 +111,7 @@ class GlobalAttention(nn.Module):
 		self,
 		attention_type,
 		enc_hid_size,
+		enc_num_dirs,
 		dec_hid_size
 	):
 		self.attention_type = attention_type
@@ -112,13 +120,13 @@ class GlobalAttention(nn.Module):
 
 		super(GlobalAttention, self).__init__()
 
-		if self.attention_type == 'dot' and self.enc_hid_size != self.dec_hid_size:
-			assert False, "When dot attention, encoder, decoder should have same hidden size"
+		if self.attention_type == 'dot' and self.enc_hid_size * self.enc_num_dirs != self.dec_hid_size:
+			assert False, "When dot attention, %d number of encoder dim should match decoder" % self.enc_num_dirs
 			
 		elif self.attention_type == 'bilinear':
 			self.project_dec_hids = nn.Linear(
 				self.dec_hid_size,
-				self.enc_hid_size
+				self.enc_hid_size * sef.enc_num_dirs
 			)
 		else:
 			self.project_dec_hids = nn.Linear(
@@ -126,7 +134,7 @@ class GlobalAttention(nn.Module):
 				self.dec_hid_size
 			)
 			self.project_enc_hids = nn.Linear(
-				self.enc_hid_size,
+				self.enc_hid_size * self.enc_num_dirs,
 				self.dec_hid_size
 			)
 			self.project_to_one_dim = nn.Linear(
@@ -134,13 +142,13 @@ class GlobalAttention(nn.Module):
 				1
 			)
 
-	def forward(self, dec_h_curr, dec_hids):
+	def forward(self, dec_h_curr, enc_hids):
 		"""Forward compute method
 
 		Args
 		----------
 		dec_h_curr  : N x dec_H
-		dec_hids    : N x L x enc_H
+		enc_hids    : N x L x (enc_H x enc_nDir)
 
 		Return
 		----------

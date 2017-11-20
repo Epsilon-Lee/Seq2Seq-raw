@@ -92,7 +92,7 @@ class Encoder(nn.Module):
 		enc_last   : tuple / (n_layer x n_dir) x N x H
 
 		"""
-		if not batch_first:
+		if not self.batch_first:
 			input = input.t() # L x N
 		input_emb = self.emb(input) # N x L x H / L x N x H
 		if self.is_packed:
@@ -105,7 +105,7 @@ class Encoder(nn.Module):
 		enc_hids, enc_last = self.rnn(input_emb)
 		
 		if self.is_packed:
-			enc_hids = unpack(
+			enc_hids, _ = unpack(
 				enc_hids,
 				self.batch_first
 			)

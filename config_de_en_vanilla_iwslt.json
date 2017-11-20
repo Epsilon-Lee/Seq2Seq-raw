@@ -1,15 +1,18 @@
 {
   "training": {
-    "optimizer": "adam",
+    "optimizer": "sgd",
     "grad_threshold": 5.0,
-    "lr": 0.0001,
-    "max_epoch": 30
+    "lr": 1.0,
+    "max_epoch": 30,
+    "train_batch_size": 64,
+    "dev_batch_size": 32,
+    "test_batch_size": 32
   },
   "management": {
-    "logfile_path": "../Logs/Seq2Seq-raw",
-    "logging__interval": 64,
+    "logfile_path": "../Logs/Seq2Seq-raw/train_modular.log",
+    "logging_interval": 32,
     "print_samples": 3200,
-    "gpuid": 0
+    "gpuid": 3
   },
   "data": {
     "train_path": "./IWSLT/trainDataset.pt",
@@ -17,13 +20,13 @@
     "test_path": "./IWSLT/testDataset.pt",
     "src_dict_path": "./IWSLT/de.30k.dict",
     "tgt_dict_path": "./IWSLT/en.30k.dict",
-    "save_dir": "../Models/Seq2Seq-raw",
+    "save_dir": "../Models/Seq2Seq-raw/",
     "load_dir": ""
   },
   "model": {
     "encoder": {
       "emb_size": 256,
-      "hid_size": 512,
+      "hid_size": 256,
       "bidirectional": 1,
       "rnn_cell_type": "gru",
       "is_packed": 1,

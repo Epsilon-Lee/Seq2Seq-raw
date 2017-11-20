@@ -12,11 +12,12 @@ from seq2seq.modules.loss import nllloss_criterion, mle_loss
 
 import json
 import time
-
+import os
+import math
 
 # Global variables
 USE_GPU = False
-
+PARAM_INIT = 0.1
 
 # 1. Get config object
 config_file_path = './config_de_en_vanilla_iwslt.json'
@@ -27,17 +28,57 @@ if cuda.is_available():
 	USE_GPU = True
 	cuda.set_device(config['management']['gpuid'])
 
-# 3. Load train, dev, test data
+# 3. Load train, dev, test data and print dataset info
 train_data = torch.load(config['data']['train_path'])
 dev_data   = torch.load(config['data']['dev_path'])
 test_data  = torch.load(config['data']['test_path'])
+
+train_data.set_batch_size(config['training']['train_batch_size'])
+dev_data.set_batch_size(config['training']['dev_batch_size'])
+test_data.set_batch_size(config['training']['test_batch_size'])
+
+print("========== Dataset info ==========")
+print("1. Training data")
+print("batch size  : %d" % train_data.batch_size)
+print("batch num   : %d" % train_data.batch_num)
+print("sentence num: %d" % len(train_data.data_symbol))
+print("2. Training data")
+print("batch size  : %d" % dev_data.batch_size)
+print("batch num   : %d" % dev_data.batch_num)
+print("sentence num: %d" % len(dev_data.data_symbol))
+print("3. Training data")
+print("batch size  : %d" % test_data.batch_size)
+print("batch num   : %d" % test_data.batch_num)
+print("sentence num: %d" % len(test_data.data_symbol))
 
 # 4. Load src, tgt dictionary
 src_dict   = Dict(None, config['data']['src_dict_path'])
 tgt_dict   = Dict(None, config['data']['tgt_dict_path'])
 
-# 5. Create model
-model = BahdahnauAttentionSeq2Seq(
+# 5. Create model and initialize the parameters
+# model = BahdahnauAttentionSeq2Seq(
+# 	src_dict,
+# 	src_dict.src_specials['<pad>'],
+# 	config['model']['encoder']['emb_size'],
+# 	config['model']['encoder']['hid_size'],
+# 	config['model']['encoder']['bidirectional'],
+# 	config['model']['encoder']['rnn_cell_type'],
+# 	config['model']['encoder']['is_packed'],
+# 	config['model']['encoder']['batch_first'],
+# 	config['model']['encoder']['num_layers'],
+# 	config['model']['encoder']['dropout'],
+# 	tgt_dict,
+# 	tgt_dict.tgt_specials['<pad>'],
+# 	config['model']['decoder']['emb_size'],
+# 	config['model']['decoder']['hid_size'],
+# 	config['model']['decoder']['rnn_cell_type'],
+# 	config['model']['decoder']['num_layers'],
+# 	config['model']['decoder']['dropout'],
+# 	config['model']['generator']['dim_lst'],
+# 	config['model']['generator']['num_layers']
+# )
+
+model = Seq2Seq(
 	src_dict,
 	src_dict.src_specials['<pad>'],
 	config['model']['encoder']['emb_size'],
@@ -48,6 +89,7 @@ model = BahdahnauAttentionSeq2Seq(
 	config['model']['encoder']['batch_first'],
 	config['model']['encoder']['num_layers'],
 	config['model']['encoder']['dropout'],
+	config['model']['encoder']['rnn_cell_type'],
 	tgt_dict,
 	tgt_dict.tgt_specials['<pad>'],
 	config['model']['decoder']['emb_size'],
@@ -56,8 +98,11 @@ model = BahdahnauAttentionSeq2Seq(
 	config['model']['decoder']['num_layers'],
 	config['model']['decoder']['dropout'],
 	config['model']['generator']['dim_lst'],
-	config['model']['generator']['num_layers']
+	config['model']['generator']['num_layers'],
 )
+
+for param in model.parameters():
+	param.data.uniform_(-PARAM_INIT, PARAM_INIT)
 
 # 6. Create optimizer
 if config['training']['optimizer'] == 'sgd':
@@ -69,7 +114,7 @@ elif config['training']['optimizer'] == 'adam':
 bleu_calulator = BleuCalculator(None, None)
 
 # 8. Create loss criterion
-criterion = nllloss_critterion(tgt_dict)
+criterion = nllloss_criterion(tgt_dict)
 
 # 9. Sent to gpu
 if USE_GPU:
@@ -109,6 +154,7 @@ f_log.write('\n')
 GRAD_C = config['training']['grad_threshold']
 acc_count_total = 0
 word_count_total = 0
+loss_total = 0.
 start_time = time.time()
 for epochIdx in xrange(config['training']['max_epoch']):
 	
@@ -139,7 +185,7 @@ for epochIdx in xrange(config['training']['max_epoch']):
 			tgt_lengths
 		) # N x (dec_L - 1) x V , N x enc_L x dec_L
 
-		loss = mle_loss(criterion, preds, tgt_id[:, 1:])
+		loss = mle_loss(criterion, preds, tgt_id[:, 1:].contiguous())
 
 		loss.backward()
 
@@ -150,20 +196,21 @@ for epochIdx in xrange(config['training']['max_epoch']):
 			grad_norm = param.grad.norm().data[0]
 			grad_norms.append(grad_norm)
 			if grad_norm > GRAD_C:
-				param.grad.data = para.grad.data * GRAD_C / grad_norm
+				param.grad.data = param.grad.data * GRAD_C / grad_norm
 		grad_norm_avg = sum(grad_norms) / len(grad_norms)
 
 		optimizer.step()
 
 		# model predict: golden trajectory
 		_ , pred_ids = torch.max(preds, dim=2) # N x (dec_L - 1)
-		acc_count_batch = pred_ids.eq(tgt_id[:, 1:]).masked_select(
-			tgt_id[:, 1:].ne(tgt_dict.tgt_specials['<pad>'])
+		acc_count_batch = pred_ids.data.eq(tgt_id[:, 1:].data).masked_select(
+			tgt_id[:, 1:].data.ne(tgt_dict.tgt_specials['<pad>'])
 		).sum()
 
 		# except the last </s> symbol
 		word_count_batch = sum(tgt_lengths) - len(tgt_lengths)
 
+		# print(type(acc_count_batch))
 		acc_batch = acc_count_batch * 1. / word_count_batch
 
 		acc_count_total += acc_count_batch
@@ -178,11 +225,11 @@ for epochIdx in xrange(config['training']['max_epoch']):
 		loss_per_word_avg = loss_total / word_count_total
 
 		# logging
-		if (batchIdx + 1) % config['management']['logging_intervl'] == 0:
+		if (batchIdx + 1) % config['management']['logging_interval'] == 0:
 			print("Epoch %d Batch %d loss %f ppl %f acc: %s acc_avg: %s grad_norm: %f time elapsed: %f"
 				% (
-					epochIdx,
-					batchIdx,
+					epochIdx + 1,
+					batchIdx + 1,
 					loss_per_word,
 					math.exp(loss_per_word_avg),
 					format(acc_batch, "2.2%"),
@@ -193,8 +240,8 @@ for epochIdx in xrange(config['training']['max_epoch']):
 			)
 			f_log.write("Epoch %d Batch %d loss %f ppl %f acc: %s acc_avg: %s grad_norm: %f time elapsed: %f\n"
 				% (
-					epochIdx,
-					batchIdx,
+					epochIdx + 1,
+					batchIdx + 1,
 					loss_per_word,
 					math.exp(loss_per_word_avg),
 					format(acc_batch, "2.2%"),

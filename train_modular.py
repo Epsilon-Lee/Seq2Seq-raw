@@ -89,7 +89,6 @@ model = Seq2Seq(
 	config['model']['encoder']['batch_first'],
 	config['model']['encoder']['num_layers'],
 	config['model']['encoder']['dropout'],
-	config['model']['encoder']['rnn_cell_type'],
 	tgt_dict,
 	tgt_dict.tgt_specials['<pad>'],
 	config['model']['decoder']['emb_size'],
@@ -98,7 +97,7 @@ model = Seq2Seq(
 	config['model']['decoder']['num_layers'],
 	config['model']['decoder']['dropout'],
 	config['model']['generator']['dim_lst'],
-	config['model']['generator']['num_layers'],
+	config['model']['generator']['num_layers']
 )
 
 for param in model.parameters():
@@ -132,22 +131,22 @@ f_log.write(time.asctime(time.localtime(time.time())) + "\n")
 f_log.write('----------------------------------------------------------------\n')
 f_log.write('================= config =================')
 f_log.write('---- Encoder ----')
-f_log.write('RNN_cell_type    : %s' % config['model']['encoder']['rnn_cell_type'])
-f_log.write('Embedding size   : %d' % config['model']['encoder']['emb_size'])
-f_log.write('Hidden size      : %d' % config['model']['encoder']['hid_size'])
-f_log.write('Number of layers : %d' % config['model']['encoder']['num_layers'])
-f_log.write('Bidirectional    : %d' % config['model']['encoder']['bidirectional'])
-f_log.write('Dropout rate     : %f' % config['model']['encoder']['dropout'])
+f_log.write('RNN_cell_type    : %s\n' % config['model']['encoder']['rnn_cell_type'])
+f_log.write('Embedding size   : %d\n' % config['model']['encoder']['emb_size'])
+f_log.write('Hidden size      : %d\n' % config['model']['encoder']['hid_size'])
+f_log.write('Number of layers : %d\n' % config['model']['encoder']['num_layers'])
+f_log.write('Bidirectional    : %d\n' % config['model']['encoder']['bidirectional'])
+f_log.write('Dropout rate     : %f\n' % config['model']['encoder']['dropout'])
 f_log.write('---- Decoder ----')
-f_log.write('RNN_cell_type    : %s' % config['model']['decoder']['rnn_cell_type'])
-f_log.write('Embedding size   : %d' % config['model']['encoder']['emb_size'])
-f_log.write('Hidden size      : %d' % config['model']['encoder']['hid_size'])
-f_log.write('Number of layers : %d' % config['model']['encoder']['num_layers'])
-f_log.write('Dropout rate     : %f' % config['model']['encoder']['dropout'])
+f_log.write('RNN_cell_type    : %s\n' % config['model']['decoder']['rnn_cell_type'])
+f_log.write('Embedding size   : %d\n' % config['model']['encoder']['emb_size'])
+f_log.write('Hidden size      : %d\n' % config['model']['encoder']['hid_size'])
+f_log.write('Number of layers : %d\n' % config['model']['encoder']['num_layers'])
+f_log.write('Dropout rate     : %f\n' % config['model']['encoder']['dropout'])
 f_log.write('---- Optimizer ----')
-f_log.write('Optimizer        : %s' % config['training']['optimizer'])
-f_log.write('Learning rate    : %f' % config['training']['lr'])
-f_log.write('Gradient clip    : %f' % config['training']['grad_threshold'])
+f_log.write('Optimizer        : %s\n' % config['training']['optimizer'])
+f_log.write('Learning rate    : %f\n' % config['training']['lr'])
+f_log.write('Gradient clip    : %f\n' % config['training']['grad_threshold'])
 f_log.write('================= config =================')
 f_log.write('\n')
 
@@ -176,7 +175,9 @@ for epochIdx in xrange(config['training']['max_epoch']):
 			tgt_mask = Variable(tgt_mask)
 		
 		model.zero_grad()
-		preds, atts = model(
+		
+		# 1. Naive Seq2Seq
+		preds = model(
 			src_id,
 			src_mask,
 			src_lengths,
@@ -184,6 +185,16 @@ for epochIdx in xrange(config['training']['max_epoch']):
 			tgt_mask,
 			tgt_lengths
 		) # N x (dec_L - 1) x V , N x enc_L x dec_L
+
+		# # 2. Attentive Seq2Seq
+		# preds, atts = model(
+		# 	src_id,
+		# 	src_mask,
+		# 	src_lengths,
+		# 	tgt_id,
+		# 	tgt_mask,
+		# 	tgt_lengths
+		# ) # N x (dec_L - 1) x V , N x enc_L x dec_L
 
 		loss = mle_loss(criterion, preds, tgt_id[:, 1:].contiguous())
 
@@ -252,7 +263,7 @@ for epochIdx in xrange(config['training']['max_epoch']):
 			)
 
 		# visualize
-		# if (batchIdx + 1) % config['management']['print_samples'] == 0:
-		# 	pred_ids_lst = pred_ids.tolist()
-		# 	for i in range(config['management']['print_number']):
+		if (batchIdx + 1) % config['management']['print_samples'] == 0:
+			pred_ids_lst = pred_ids.tolist()
+			for i in range(config['management']['print_number']):
 

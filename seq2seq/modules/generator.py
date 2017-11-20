@@ -82,4 +82,10 @@ class Generator(nn.Module):
 		"""
 		# dec_hids_2d = dec_hids.view(-1, dec_hids.size(2))
 		# return F.log_softmax(self.ff_networks(dec_hids))
-		return F.softmax(self.ff_networks(dec_hids))
+		N = dec_hids.size(0)
+		L = dec_hids.size(1)
+		unnormalized = self.ff_networks(dec_hids)
+		unnormalized_reshaped = unnormalized.view(N * L, -1)
+		voc_dstrs = F.log_softmax(unnormalized_reshaped).contiguous().view(N, L, -1) 
+		# print(torch.sum(voc_dstrs[0, 0, :]))
+		return voc_dstrs

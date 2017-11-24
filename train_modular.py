@@ -9,6 +9,7 @@ from seq2seq.seq2seq_models import Seq2Seq, BahdahnauAttentionSeq2Seq, GlobalAtt
 from seq2seq.Dict import Dict
 from seq2seq.bleucal import BleuCalculator
 from seq2seq.modules.loss import nllloss_criterion, mle_loss
+from seq2seq.search import greedy_search
 
 import json
 import time
@@ -56,29 +57,8 @@ src_dict   = Dict(None, config['data']['src_dict_path'])
 tgt_dict   = Dict(None, config['data']['tgt_dict_path'])
 
 # 5. Create model and initialize the parameters
-# model = BahdahnauAttentionSeq2Seq(
-# 	src_dict,
-# 	src_dict.src_specials['<pad>'],
-# 	config['model']['encoder']['emb_size'],
-# 	config['model']['encoder']['hid_size'],
-# 	config['model']['encoder']['bidirectional'],
-# 	config['model']['encoder']['rnn_cell_type'],
-# 	config['model']['encoder']['is_packed'],
-# 	config['model']['encoder']['batch_first'],
-# 	config['model']['encoder']['num_layers'],
-# 	config['model']['encoder']['dropout'],
-# 	tgt_dict,
-# 	tgt_dict.tgt_specials['<pad>'],
-# 	config['model']['decoder']['emb_size'],
-# 	config['model']['decoder']['hid_size'],
-# 	config['model']['decoder']['rnn_cell_type'],
-# 	config['model']['decoder']['num_layers'],
-# 	config['model']['decoder']['dropout'],
-# 	config['model']['generator']['dim_lst'],
-# 	config['model']['generator']['num_layers']
-# )
-
-model = Seq2Seq(
+# Bahdahnau attention model
+model = BahdahnauAttentionSeq2Seq(
 	src_dict,
 	src_dict.src_specials['<pad>'],
 	config['model']['encoder']['emb_size'],
@@ -100,8 +80,33 @@ model = Seq2Seq(
 	config['model']['generator']['num_layers']
 )
 
+# # Naive Seq2Seq model
+# model = Seq2Seq(
+# 	src_dict,
+# 	src_dict.src_specials['<pad>'],
+# 	config['model']['encoder']['emb_size'],
+# 	config['model']['encoder']['hid_size'],
+# 	config['model']['encoder']['bidirectional'],
+# 	config['model']['encoder']['rnn_cell_type'],
+# 	config['model']['encoder']['is_packed'],
+# 	config['model']['encoder']['batch_first'],
+# 	config['model']['encoder']['num_layers'],
+# 	config['model']['encoder']['dropout'],
+# 	tgt_dict,
+# 	tgt_dict.tgt_specials['<pad>'],
+# 	config['model']['decoder']['emb_size'],
+# 	config['model']['decoder']['hid_size'],
+# 	config['model']['decoder']['rnn_cell_type'],
+# 	config['model']['decoder']['num_layers'],
+# 	config['model']['decoder']['dropout'],
+# 	config['model']['generator']['dim_lst'],
+# 	config['model']['generator']['num_layers']
+# )
+
 for param in model.parameters():
 	param.data.uniform_(-PARAM_INIT, PARAM_INIT)
+
+print model
 
 # 6. Create optimizer
 if config['training']['optimizer'] == 'sgd':
@@ -129,25 +134,26 @@ f_log.write("\n")
 f_log.write('------------------------Start Experiment------------------------\n')
 f_log.write(time.asctime(time.localtime(time.time())) + "\n")
 f_log.write('----------------------------------------------------------------\n')
-f_log.write('================= config =================')
-f_log.write('---- Encoder ----')
+f_log.write('================= config =================\n')
+f_log.write('| Model name: %s |\n' % model.name)
+f_log.write('---- Encoder ----\n')
 f_log.write('RNN_cell_type    : %s\n' % config['model']['encoder']['rnn_cell_type'])
 f_log.write('Embedding size   : %d\n' % config['model']['encoder']['emb_size'])
 f_log.write('Hidden size      : %d\n' % config['model']['encoder']['hid_size'])
 f_log.write('Number of layers : %d\n' % config['model']['encoder']['num_layers'])
 f_log.write('Bidirectional    : %d\n' % config['model']['encoder']['bidirectional'])
 f_log.write('Dropout rate     : %f\n' % config['model']['encoder']['dropout'])
-f_log.write('---- Decoder ----')
+f_log.write('---- Decoder ----\n')
 f_log.write('RNN_cell_type    : %s\n' % config['model']['decoder']['rnn_cell_type'])
 f_log.write('Embedding size   : %d\n' % config['model']['encoder']['emb_size'])
 f_log.write('Hidden size      : %d\n' % config['model']['encoder']['hid_size'])
 f_log.write('Number of layers : %d\n' % config['model']['encoder']['num_layers'])
 f_log.write('Dropout rate     : %f\n' % config['model']['encoder']['dropout'])
-f_log.write('---- Optimizer ----')
+f_log.write('---- Optimizer ----\n')
 f_log.write('Optimizer        : %s\n' % config['training']['optimizer'])
 f_log.write('Learning rate    : %f\n' % config['training']['lr'])
 f_log.write('Gradient clip    : %f\n' % config['training']['grad_threshold'])
-f_log.write('================= config =================')
+f_log.write('================= config =================\n')
 f_log.write('\n')
 
 GRAD_C = config['training']['grad_threshold']
@@ -176,18 +182,8 @@ for epochIdx in xrange(config['training']['max_epoch']):
 		
 		model.zero_grad()
 		
-		# 1. Naive Seq2Seq
-		preds = model(
-			src_id,
-			src_mask,
-			src_lengths,
-			tgt_id,
-			tgt_mask,
-			tgt_lengths
-		) # N x (dec_L - 1) x V , N x enc_L x dec_L
-
-		# # 2. Attentive Seq2Seq
-		# preds, atts = model(
+		# # 1. Naive Seq2Seq
+		# preds = model(
 		# 	src_id,
 		# 	src_mask,
 		# 	src_lengths,
@@ -195,6 +191,16 @@ for epochIdx in xrange(config['training']['max_epoch']):
 		# 	tgt_mask,
 		# 	tgt_lengths
 		# ) # N x (dec_L - 1) x V , N x enc_L x dec_L
+
+		# 2. Attentive Seq2Seq
+		preds, atts = model(
+			src_id,
+			src_mask,
+			src_lengths,
+			tgt_id,
+			tgt_mask,
+			tgt_lengths
+		) # N x (dec_L - 1) x V , N x enc_L x dec_L
 
 		loss = mle_loss(criterion, preds, tgt_id[:, 1:].contiguous())
 
@@ -262,8 +268,119 @@ for epochIdx in xrange(config['training']['max_epoch']):
 				)
 			)
 
-		# visualize
+		# visualization
 		if (batchIdx + 1) % config['management']['print_samples'] == 0:
-			pred_ids_lst = pred_ids.tolist()
+			print('')
+			print('--------------------------------------------------------------------------')
+			print('Visulize some examples predicted by the model with gold feed-in trajectory')
+			print('--------------------------------------------------------------------------')
+			f_log.write('--------------------------------------------------------------------------\n')
+			f_log.write('Visulize some examples predicted by the model with gold feed-in trajectory\n')
+			f_log.write('--------------------------------------------------------------------------\n')
+			pred_ids_lst = pred_ids.data.tolist()
+			src_symbols_lst = [gold_tup[0] for gold_tup in data_symbol]
+			gold_symbols_lst = [gold_tup[1] for gold_tup in data_symbol]
 			for i in range(config['management']['print_number']):
+				pred_ids = pred_ids_lst[i][:tgt_lengths[i]]
+				pred_sent = " ".join(tgt_dict.convertIdxSeq2SymbolSeq(pred_ids))
+				src_sent = src_symbols_lst[i]
+				gold_sent = gold_symbols_lst[i]
+				print('src_gold:')
+				print(src_sent)
+				print('tgt_pred:')
+				print(pred_sent)
+				print('tgt_gold:')
+				print(gold_sent)
+				print
+				f_log.write('src_gold:\n')
+				f_log.write(src_sent + '\n')
+				f_log.write('tgt_pred:\n')
+				f_log.write(pred_sent + '\n')
+				f_log.write('tgt_gold:\n')
+				f_log.write(gold_sent + '\n')
+				f_log.write('\n')
+			print('--------------------------------------------------------------------------')
+			f_log.write('--------------------------------------------------------------------------\n')
 
+		# evaluation
+		## 1. Greedy decoding
+		# if (batchIdx + 1) % config['management']['eval_interval'] == 0:
+		# 	print('----------Evaluation on dev set----------')
+		# 	f_log.write('----------Evaluation on dev set----------\n')
+		# 	cand_lst = []
+		# 	gold_lst = []
+		# 	for devBatchIdx in xrange(len(dev_data)):
+		# 		data_symbol, data_id, data_mask, data_lengths = dev_data[devBatchIdx]
+		# 		src_id, tgt_id = data_id
+		# 		src_mask, tgt_mask = data_mask
+		# 		src_lengths, tgt_lengths = data_lengths
+		# 		if USE_GPU:
+		# 			src_id = Variable(src_id).cuda()
+		# 			tgt_id = Variable(tgt_id).cuda()
+		# 			src_mask = Variable(src_mask).cuda()
+		# 			tgt_mask = Variable(tgt_mask).cuda()
+		# 		else:
+		# 			src_id = Variable(src_id)
+		# 			tgt_id = Variable(tgt_id)
+		# 			src_mask = Variable(src_mask)
+		# 			tgt_mask = Variable(tgt_mask)
+
+		# 		pred_ids, _ , _ = greedy_search(
+		# 			model,
+		# 			src_id,
+		# 			src_mask,
+		# 			src_lengths,
+		# 			tgt_dict,
+		# 			config['evaluation']['max_decode_len']
+		# 		) # N x max_decode_len
+		# 		pred_ids_lst = pred_ids.tolist()
+		# 		pred_batch_lst = tgt.dict.convert_id_lst_to_symbol_lst(pred_ids_lst)
+		# 		cand_lst.extend(pred_batch_lst)
+		# 		# single ref. 
+		# 		gold_batch_lst = [tup[1] for tup in data_symbol]
+		# 		gold_lst.extend(gold_batch_lst)
+			
+		# 	ngram_bleus, bleu, bp, hyp_ref_len, ratio = bleu_calulator.calc_bleu(
+		# 		cand_lst,
+		# 		[gold_lst]
+		# 	)
+		# 	print('BLEU: %2.2f (%2.2f, %2.2f, %2.2f, %2.2f) BP: %.5f ratio: %.5f (%d/%d)'
+		# 		% (
+		# 			bleu,
+		# 			ngram_bleus[0],
+		# 			ngram_bleus[1],
+		# 			ngram_bleus[2],
+		# 			ngram_bleus[3],
+		# 			bp,
+		# 			ratio,
+		# 			hyp_ref_len[0],
+		# 			hyp_ref_len[1]
+		# 		)
+		# 	)
+		# 	f_log.write('BLEU: %2.2f (%2.2f, %2.2f, %2.2f, %2.2f) BP: %.5f ratio: %.5f (%d/%d)\n'
+		# 		% (
+		# 			bleu,
+		# 			ngram_bleus[0],
+		# 			ngram_bleus[1],
+		# 			ngram_bleus[2],
+		# 			ngram_bleus[3],
+		# 			bp,
+		# 			ratio,
+		# 			hyp_ref_len[0],
+		# 			hyp_ref_len[1]
+		# 		)
+		# 	)
+
+		## 2. Beam search decoding
+
+	# save checkpoint
+	if USE_GPU:
+		model_state_dict = {}
+		for name, param in model.state_dict().iteritems():
+			model_state_dict[name] = param.cpu()
+	else:
+		model_state_dict = model.state_dict()
+	torch.save(
+		model_state_dict,
+		'../Models/Seq2Seq-raw_Models/modular_batchid_%s.pt' % str(epochIdx)
+	)

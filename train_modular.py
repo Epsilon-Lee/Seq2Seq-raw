@@ -52,6 +52,7 @@ print("3. Training data")
 print("batch size  : %d" % test_data.batch_size)
 print("batch num   : %d" % test_data.batch_num)
 print("sentence num: %d" % len(test_data.data_symbol))
+print
 
 # 4. Load src, tgt dictionary
 src_dict   = Dict(None, config['data']['src_dict_path'])
@@ -59,7 +60,30 @@ tgt_dict   = Dict(None, config['data']['tgt_dict_path'])
 
 # 5. Create model and initialize the parameters
 # Bahdahnau attention model
-model = BahdahnauAttentionSeq2Seq(
+# model = BahdahnauAttentionSeq2Seq(
+# 	src_dict,
+# 	src_dict.src_specials['<pad>'],
+# 	config['model']['encoder']['emb_size'],
+# 	config['model']['encoder']['hid_size'],
+# 	config['model']['encoder']['bidirectional'],
+# 	config['model']['encoder']['rnn_cell_type'],
+# 	config['model']['encoder']['is_packed'],
+# 	config['model']['encoder']['batch_first'],
+# 	config['model']['encoder']['num_layers'],
+# 	config['model']['encoder']['dropout'],
+# 	tgt_dict,
+# 	tgt_dict.tgt_specials['<pad>'],
+# 	config['model']['decoder']['emb_size'],
+# 	config['model']['decoder']['hid_size'],
+# 	config['model']['decoder']['rnn_cell_type'],
+# 	config['model']['decoder']['num_layers'],
+# 	config['model']['decoder']['dropout'],
+# 	config['model']['generator']['dim_lst'],
+# 	config['model']['generator']['num_layers']
+# )
+
+# Global attention model
+model = GlobalAttentionSeq2Seq(
 	src_dict,
 	src_dict.src_specials['<pad>'],
 	config['model']['encoder']['emb_size'],
@@ -77,6 +101,7 @@ model = BahdahnauAttentionSeq2Seq(
 	config['model']['decoder']['rnn_cell_type'],
 	config['model']['decoder']['num_layers'],
 	config['model']['decoder']['dropout'],
+	config['model']['decoder']['global_attention_type'],
 	config['model']['generator']['dim_lst'],
 	config['model']['generator']['num_layers']
 )
@@ -304,74 +329,74 @@ for epochIdx in xrange(config['training']['max_epoch']):
 			f_log.write('--------------------------------------------------------------------------\n')
 
 		# evaluation
-		## 1. Greedy decoding
-		# if (batchIdx + 1) % config['management']['eval_interval'] == 0:
-		# 	print('----------Evaluation on dev set----------')
-		# 	f_log.write('----------Evaluation on dev set----------\n')
-		# 	cand_lst = []
-		# 	gold_lst = []
-		# 	for devBatchIdx in tqdm(xrange(len(dev_data))):
-		# 		data_symbol, data_id, data_mask, data_lengths = dev_data[devBatchIdx]
-		# 		src_id, tgt_id = data_id
-		# 		src_mask, tgt_mask = data_mask
-		# 		src_lengths, tgt_lengths = data_lengths
-		# 		if USE_GPU:
-		# 			src_id = Variable(src_id).cuda()
-		# 			tgt_id = Variable(tgt_id).cuda()
-		# 			src_mask = Variable(src_mask).cuda()
-		# 			tgt_mask = Variable(tgt_mask).cuda()
-		# 		else:
-		# 			src_id = Variable(src_id)
-		# 			tgt_id = Variable(tgt_id)
-		# 			src_mask = Variable(src_mask)
-		# 			tgt_mask = Variable(tgt_mask)
+		# 1. Greedy decoding
+		if (batchIdx + 1) % config['management']['eval_interval'] == 0:
+			print('----------Evaluation on dev set----------')
+			f_log.write('----------Evaluation on dev set----------\n')
+			cand_lst = []
+			gold_lst = []
+			for devBatchIdx in tqdm(xrange(len(dev_data))):
+				data_symbol, data_id, data_mask, data_lengths = dev_data[devBatchIdx]
+				src_id, tgt_id = data_id
+				src_mask, tgt_mask = data_mask
+				src_lengths, tgt_lengths = data_lengths
+				if USE_GPU:
+					src_id = Variable(src_id).cuda()
+					tgt_id = Variable(tgt_id).cuda()
+					src_mask = Variable(src_mask).cuda()
+					tgt_mask = Variable(tgt_mask).cuda()
+				else:
+					src_id = Variable(src_id)
+					tgt_id = Variable(tgt_id)
+					src_mask = Variable(src_mask)
+					tgt_mask = Variable(tgt_mask)
 
-		# 		pred_ids, _ , _ = greedy_search(
-		# 			model,
-		# 			src_id,
-		# 			src_mask,
-		# 			src_lengths,
-		# 			tgt_dict,
-		# 			config['evaluation']['max_decode_len'],
-		#			USE_GPU
-		# 		) # N x max_decode_len
-		# 		pred_ids_lst = pred_ids.data.tolist()
-		# 		pred_batch_lst = tgt_dict.convert_id_lst_to_symbol_lst(pred_ids_lst)
-		# 		cand_lst.extend(pred_batch_lst)
-		# 		# single ref. 
-		# 		gold_batch_lst = [tup[1] for tup in data_symbol]
-		# 		gold_lst.extend(gold_batch_lst)
+				pred_ids, _ , _ = greedy_search(
+					model,
+					src_id,
+					src_mask,
+					src_lengths,
+					tgt_dict,
+					config['evaluation']['max_decode_len'],
+					USE_GPU
+				) # N x max_decode_len
+				pred_ids_lst = pred_ids.data.tolist()
+				pred_batch_lst = tgt_dict.convert_id_lst_to_symbol_lst(pred_ids_lst)
+				cand_lst.extend(pred_batch_lst)
+				# single ref. 
+				gold_batch_lst = [tup[1] for tup in data_symbol]
+				gold_lst.extend(gold_batch_lst)
 			
-		# 	ngram_bleus, bleu, bp, hyp_ref_len, ratio = bleu_calulator.calc_bleu(
-		# 		cand_lst,
-		# 		[gold_lst]
-		# 	)
-		# 	print('BLEU: %2.2f (%2.2f, %2.2f, %2.2f, %2.2f) BP: %.5f ratio: %.5f (%d/%d)'
-		# 		% (
-		# 			bleu,
-		# 			ngram_bleus[0],
-		# 			ngram_bleus[1],
-		# 			ngram_bleus[2],
-		# 			ngram_bleus[3],
-		# 			bp,
-		# 			ratio,
-		# 			hyp_ref_len[0],
-		# 			hyp_ref_len[1]
-		# 		)
-		# 	)
-		# 	f_log.write('BLEU: %2.2f (%2.2f, %2.2f, %2.2f, %2.2f) BP: %.5f ratio: %.5f (%d/%d)\n'
-		# 		% (
-		# 			bleu,
-		# 			ngram_bleus[0],
-		# 			ngram_bleus[1],
-		# 			ngram_bleus[2],
-		# 			ngram_bleus[3],
-		# 			bp,
-		# 			ratio,
-		# 			hyp_ref_len[0],
-		# 			hyp_ref_len[1]
-		# 		)
-		# 	)
+			ngram_bleus, bleu, bp, hyp_ref_len, ratio = bleu_calulator.calc_bleu(
+				cand_lst,
+				[gold_lst]
+			)
+			print('BLEU: %2.2f (%2.2f, %2.2f, %2.2f, %2.2f) BP: %.5f ratio: %.5f (%d/%d)'
+				% (
+					bleu,
+					ngram_bleus[0],
+					ngram_bleus[1],
+					ngram_bleus[2],
+					ngram_bleus[3],
+					bp,
+					ratio,
+					hyp_ref_len[0],
+					hyp_ref_len[1]
+				)
+			)
+			f_log.write('BLEU: %2.2f (%2.2f, %2.2f, %2.2f, %2.2f) BP: %.5f ratio: %.5f (%d/%d)\n'
+				% (
+					bleu,
+					ngram_bleus[0],
+					ngram_bleus[1],
+					ngram_bleus[2],
+					ngram_bleus[3],
+					bp,
+					ratio,
+					hyp_ref_len[0],
+					hyp_ref_len[1]
+				)
+			)
 
 		## 2. Beam search decoding
 
@@ -384,5 +409,5 @@ for epochIdx in xrange(config['training']['max_epoch']):
 		model_state_dict = model.state_dict()
 	torch.save(
 		model_state_dict,
-		'../Models/Seq2Seq-raw_Models/modular_batchid_%s.pt' % str(epochIdx)
+		'../Models/Seq2Seq-raw_Models/modular_global_bid_%s.pt' % str(epochIdx)
 	)

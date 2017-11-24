@@ -27,8 +27,8 @@ def mle_loss(crit, preds, gold):
 
 	"""
 	N = preds.size(0)
-	log_preds = torch.log(preds)
-	# log_preds = preds
+	# log_preds = torch.log(preds)
+	log_preds = preds
 	log_preds_flat = log_preds.view(-1, log_preds.size(2))
 	gold_flat = gold.view(-1)
 	loss = crit(log_preds_flat, gold_flat)

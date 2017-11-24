@@ -36,6 +36,8 @@ class Seq2Seq(nn.Module):
 	):
 		super(Seq2Seq, self).__init__()
 
+		self.name = 'Seq2Seq'
+
 		self.encoder = Encoder(
 			encoder_dict,
 			encoder_padding_idx,
@@ -89,9 +91,17 @@ class Seq2Seq(nn.Module):
 
 		Args
 		----------
+		input           :  N x enc_L
+		input_mask      :  N x enc_L
+		input_lengths   :  list len() => N
+		output          :  N x dec_L
+		output_mask     :  N x dec_L
+		output_lengths  :  list len() => N
 
 		Return
 		----------
+		preds           : N x (dec_L - 1) x vocab_size
+
 
 		"""
 		enc_hids, enc_last = self.encoder(
@@ -102,7 +112,7 @@ class Seq2Seq(nn.Module):
 
 		dec_init = self.bridge(enc_last)
 
-		dec_hids = self.decoder(output, dec_init) # N x (dec_L - 1) x H
+		dec_hids, _ = self.decoder(output, dec_init) # N x (dec_L - 1) x H
 
 		preds = self.generator(dec_hids) # N x (dec_L - 1) x vocab_size
 
@@ -135,6 +145,8 @@ class BahdahnauAttentionSeq2Seq(nn.Module):
 		generator_num_layers
 	):
 		super(BahdahnauAttentionSeq2Seq, self).__init__()
+
+		self.name = 'BahdahnauAttentionSeq2Seq'
 
 		self.encoder = Encoder(
 			encoder_dict,
@@ -215,7 +227,7 @@ class BahdahnauAttentionSeq2Seq(nn.Module):
 
 		dec_init = self.bridge(enc_last)
 
-		dec_hids, atts = self.decoder(output, dec_init, enc_hids)
+		dec_hids, atts, _ = self.decoder(output, dec_init, enc_hids)
 
 		preds = self.generator(dec_hids)
 
@@ -250,6 +262,8 @@ class GlobalAttentionSeq2Seq(nn.Module):
 	):
 		super(GlobalAttentionSeq2Seq, self).__init__()
 
+		self.name = 'GlobalAttentionSeq2Seq'
+
 		self.encoder = Encoder(
 			encoder_dict,
 			encoder_padding_idx,
@@ -282,7 +296,8 @@ class GlobalAttentionSeq2Seq(nn.Module):
 			decoder_num_layers,
 			decoder_dropout,
 			encoder_hid_size,
-			global_attention_type
+			global_attention_type,
+			encoder_bidirectional
 		)
 
 		self.generator = Generator(
@@ -327,9 +342,13 @@ class GlobalAttentionSeq2Seq(nn.Module):
 
 		dec_init = self.bridge(enc_last)
 
-		dec_hids, atts = self.decoder(output, dec_init, enc_hids)
+		dec_hids, atts, _ = self.decoder(output, dec_init, enc_hids)
+
+		# print(dec_hids.size())
+		# print(self.generator)
 
 		voc_dstrs = self.generator(dec_hids) # N x (dec_L - 1) x vocab_size
-
+		preds = voc_dstrs
+		
 		return preds, atts
 

@@ -180,6 +180,7 @@ class NaiveDecoder(nn.Module):
 		Return
 		----------
 		dec_hids : L x N x H
+		dec_prev  : tuple / dec_nL x N x dec_H
 
 		"""
 		input = input[:, :-1]
@@ -188,15 +189,15 @@ class NaiveDecoder(nn.Module):
 		# 	dec_h_0, dec_c_0 = dec_init
 		# else:
 		# 	dec_h_0 = dec_init
-		prev = dec_init
+		dec_prev = dec_init
 		dec_hids = []
 		for curr_input in input_emb.split(1, dim=1): # time step / seq_len
 			curr_input = curr_input.squeeze(0) # N x Embz
-			curr_output, prev = self.stack_rnn(curr_input, prev)
+			curr_output, dec_prev = self.stack_rnn(curr_input, dec_prev)
 			dec_hids.append(curr_output)
 
 		dec_hids = torch.stack(dec_hids, dim=0).transpose(0, 1) # N x L x H
-		return dec_hids
+		return dec_hids, dec_prev
 
 
 class BahdahnauAttentiveDecoder(nn.Module):
@@ -258,7 +259,7 @@ class BahdahnauAttentiveDecoder(nn.Module):
 
 		self.rnn_stack = StackedRNNCell(
 			self.num_layers,
-			self.hid_size,
+			self.emb_size,
 			self.rnn_cell_type,
 			self.hid_size,
 			self.dropout
@@ -277,9 +278,10 @@ class BahdahnauAttentiveDecoder(nn.Module):
 		----------
 		dec_hids  : N x (dec_L - 1) x dec_H
 		atts      : N x enc_L x (dec_L - 1)
+		dec_prev  : dec_nL x N x dec_H
 
 		"""
-		input = input[:, :-1] # N x (L - 1)
+		input = input[:, :-1] # N x (dec_L - 1)
 		dec_prev = dec_init # dec_nL x N x dec_H
 		# print(dec_prev.size())
 		dec_hids_t = dec_init[-1, :, :] # N x dec_H
@@ -303,7 +305,7 @@ class BahdahnauAttentiveDecoder(nn.Module):
 		# print(dec_hids.size())
 		atts = torch.stack(att_lst, dim=0).transpose(0, 1).transpose(1, 2) # N x enc_L x dec_L - 1
 
-		return dec_hids, atts
+		return dec_hids, atts, dec_prev
 
 
 class GlobalAttentiveDecoder(nn.Module):
@@ -319,7 +321,8 @@ class GlobalAttentiveDecoder(nn.Module):
 		dec_num_layers,
 		dropout,
 		enc_hid_size,
-		global_attention_type
+		global_attention_type,
+		enc_bidirectional
 	):
 		self.dict = decoder_dict
 		self.vocab_size = self.dict.size()
@@ -331,7 +334,11 @@ class GlobalAttentiveDecoder(nn.Module):
 		self.dropout = dropout
 		self.enc_hid_size = enc_hid_size
 		self.global_attention_type = global_attention_type
-
+		self.enc_bidirectional = enc_bidirectional
+		if self.enc_bidirectional:
+			self.enc_num_dirs = 2
+		else:
+			self.enc_num_dirs = 1
 		super(GlobalAttentiveDecoder, self).__init__()
 
 		self.emb = nn.Embedding(
@@ -340,9 +347,9 @@ class GlobalAttentiveDecoder(nn.Module):
 			self.padding_idx
 		)
 
-		self.rnn_stack = nn.StackedRNNCell(
+		self.rnn_stack = StackedRNNCell(
 			self.num_layers,
-			self.hid_size,
+			self.emb_size,
 			self.rnn_cell_type,
 			self.hid_size,
 			self.dropout
@@ -350,8 +357,9 @@ class GlobalAttentiveDecoder(nn.Module):
 
 		self.attn = GlobalAttention(
 			self.global_attention_type,
-			self.hid_size,
-			self.enc_hid_size
+			self.enc_hid_size,
+			self.enc_num_dirs,
+			self.hid_size
 		)
 
 	def forward(self, input, dec_init, enc_hids):
@@ -367,13 +375,14 @@ class GlobalAttentiveDecoder(nn.Module):
 		----------
 		dec_hids  : N x (dec_L - 1) x dec_H
 		atts      : N x enc_L x (dec_L - 1)
-
+		dec_prev  : tuple / dec_nL x N x dec_H
 		"""
 		dec_prev = dec_init
-		if self.rnn_cell_type == 'lstm':
-			dec_h_prev, dec_c_prev = dec_prev
-		else:
-			dec_h_prev = dec_prev
+		# # FOLLOWING might be a BUG
+		# if self.rnn_cell_type == 'lstm':
+		# 	dec_h_prev, dec_c_prev = dec_prev
+		# else:
+		# 	dec_h_prev = dec_prev
 
 		input = input[:, :-1] # N x (dec_L - 1)
 		dec_hids_lst = []
@@ -381,6 +390,8 @@ class GlobalAttentiveDecoder(nn.Module):
 		for input_t in input.split(1, dim=1): # (decL - 1) - N x 1
 			input_t = input_t.squeeze(1) # N
 			input_t_emb = self.emb(input_t) # N x Embz
+			# print(input_t_emb.size())
+			# print(dec_prev.size())
 			dec_h_curr, dec_prev = self.rnn_stack(input_t_emb, dec_prev)
 			h_att_curr, att_curr = self.attn(dec_h_curr, enc_hids)
 
@@ -390,4 +401,4 @@ class GlobalAttentiveDecoder(nn.Module):
 		dec_hids = torch.stack(dec_hids_lst).transpose(0, 1) # N x (dec_L - 1) x dec_H
 		atts = torch.stack(att_lst).transpose(0, 1).transpose(1, 2)
 
-		return dec_hids, atts
+		return dec_hids, atts, dec_prev

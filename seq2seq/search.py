@@ -7,7 +7,8 @@ def greedy_search(
 	input_mask,
 	input_lengths,
 	dec_dict,
-	max_decode_len
+	max_decode_len,
+	USE_GPU
 ):
 	"""Utility function to execute greedy search decoding
 	for a given batch input
@@ -22,6 +23,10 @@ def greedy_search(
 	input            : N x enc_L
 	input_mask       : N x enc_L
 	input_lengths    : list len()=>N
+	dec_dict         : Dict
+		provides id number of specials '<s>' and '</s>'
+	max_decode_len   : int
+	USE_GPU          : int (0 or 1)
 
 	Return
 	----------
@@ -45,15 +50,25 @@ def greedy_search(
 
 	dec_init = model.bridge(enc_last)
 	dec_prev = dec_init
-
-	dec_input_t = Variable(
-		torch.LongTensor(N, 2).fill_(BOS)
-	) # in (N, 2), `2` is a trick, since in model.decoder(...), 
-	# the (N, 2) will be sliced to (N, 1)
+	if USE_GPU:
+		dec_input_t = Variable(
+			torch.LongTensor(N, 2).fill_(BOS)
+		).cuda() # in (N, 2), `2` is a trick, since in model.decoder(...), 
+		# the (N, 2) will be sliced to (N, 1)
+	else:
+		dec_input_t = Variable(
+			torch.LongTensor(N, 2).fill_(BOS)
+		)
+		
 	pred_ids = []
-	total_log_probs = torch.FloatTensor(N).fill_(0)
 	att = []
-	mask = torch.FloatTensor(N).fill_(1)
+	if USE_GPU:
+		total_log_probs = torch.FloatTensor(N).fill_(0).cuda()
+		mask = torch.FloatTensor(N).fill_(1).cuda()
+	else:
+		total_log_probs = torch.FloatTensor(N).fill_(0)
+		mask = torch.FloatTensor(N).fill_(1)
+	
 	for t_step in xrange(max_decode_len):
 
 		if model.name == 'Seq2Seq':

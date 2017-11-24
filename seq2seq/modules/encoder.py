@@ -84,7 +84,7 @@ class Encoder(nn.Module):
 		----------
 		input         : N x L torch.LongTensor
 		input_mask    : N x L torch.FloatTensor
-		input_lengths : N python list [int]
+		input_lengths : list len() => N
 
 		Return
 		----------
@@ -94,7 +94,7 @@ class Encoder(nn.Module):
 		"""
 		if not self.batch_first:
 			input = input.t() # L x N
-		input_emb = self.emb(input) # N x L x H / L x N x H
+		input_emb = self.emb(input) # N x L x Embz / L x N x Embz
 		if self.is_packed:
 			input_emb = pack(
 				input_emb,
@@ -102,12 +102,14 @@ class Encoder(nn.Module):
 				self.batch_first
 			)
 		
-		enc_hids, enc_last = self.rnn(input_emb)
+		enc_hids, enc_last = self.rnn(input_emb) # PackedSequence / L x N x H
 		
 		if self.is_packed:
 			enc_hids, _ = unpack(
 				enc_hids,
 				self.batch_first
 			)
+		if not self.batch_first:
+			enc_hids = enc_hids.transpose(0, 1)
 
 		return enc_hids, enc_last

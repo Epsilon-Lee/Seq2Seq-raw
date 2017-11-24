@@ -116,6 +116,7 @@ class GlobalAttention(nn.Module):
 	):
 		self.attention_type = attention_type
 		self.enc_hid_size = enc_hid_size
+		self.enc_num_dirs = enc_num_dirs
 		self.dec_hid_size = dec_hid_size
 
 		super(GlobalAttention, self).__init__()
@@ -141,6 +142,10 @@ class GlobalAttention(nn.Module):
 				self.dec_hid_size,
 				1
 			)
+		self.project_att_hids = nn.Linear(
+			self.enc_hid_size * self.enc_num_dirs,
+			self.dec_hid_size
+		)
 
 	def forward(self, dec_h_curr, enc_hids):
 		"""Forward compute method
@@ -162,6 +167,7 @@ class GlobalAttention(nn.Module):
 			alpha = F.softmax(alpha_unnormalized) # N x L
 			enc_hids = alpha.unsqueeze(2) * enc_hids # N x L x enc_H
 			h_att_curr = torch.sum(enc_hids, dim=1) # N x enc_H
+			h_att_curr = self.project_att_hids(h_att_curr)
 			att_curr = alpha
 			return h_att_curr, att_curr
 		elif self.attention_type == 'bilinear':
@@ -173,6 +179,7 @@ class GlobalAttention(nn.Module):
 			alpha = F.softmax(alpha_unnormalized) # N x L
 			enc_hids = alpha.unsqueeze(2) * enc_hids
 			h_att_curr = torch.sum(enc_hids, dim=1)
+			h_att_curr = self.project_att_hids(h_att_curr)
 			att_curr = alpha
 			return h_att_curr, att_curr
 		else:
@@ -184,6 +191,7 @@ class GlobalAttention(nn.Module):
 			alpha = F.softmax(alpha_unnormalized) # N x L
 			enc_hids = alpha.unsqueeze(2) * enc_hids
 			h_att_curr = torch.sum(enc_hids, dim=1)
+			h_att_curr = self.project_att_hids(h_att_curr)
 			att_curr = alpha
 			return h_att_curr, att_curr
 

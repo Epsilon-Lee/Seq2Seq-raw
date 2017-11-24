@@ -15,6 +15,7 @@ import json
 import time
 import os
 import math
+from tqdm import tqdm
 
 # Global variables
 USE_GPU = False
@@ -309,7 +310,7 @@ for epochIdx in xrange(config['training']['max_epoch']):
 		# 	f_log.write('----------Evaluation on dev set----------\n')
 		# 	cand_lst = []
 		# 	gold_lst = []
-		# 	for devBatchIdx in xrange(len(dev_data)):
+		# 	for devBatchIdx in tqdm(xrange(len(dev_data))):
 		# 		data_symbol, data_id, data_mask, data_lengths = dev_data[devBatchIdx]
 		# 		src_id, tgt_id = data_id
 		# 		src_mask, tgt_mask = data_mask
@@ -331,10 +332,11 @@ for epochIdx in xrange(config['training']['max_epoch']):
 		# 			src_mask,
 		# 			src_lengths,
 		# 			tgt_dict,
-		# 			config['evaluation']['max_decode_len']
+		# 			config['evaluation']['max_decode_len'],
+		#			USE_GPU
 		# 		) # N x max_decode_len
-		# 		pred_ids_lst = pred_ids.tolist()
-		# 		pred_batch_lst = tgt.dict.convert_id_lst_to_symbol_lst(pred_ids_lst)
+		# 		pred_ids_lst = pred_ids.data.tolist()
+		# 		pred_batch_lst = tgt_dict.convert_id_lst_to_symbol_lst(pred_ids_lst)
 		# 		cand_lst.extend(pred_batch_lst)
 		# 		# single ref. 
 		# 		gold_batch_lst = [tup[1] for tup in data_symbol]

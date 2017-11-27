@@ -31,20 +31,20 @@
   "model": {
     "encoder": {
       "emb_size": 256,
-      "hid_size": 512,
+      "hid_size": 256,
       "bidirectional": 1,
       "rnn_cell_type": "gru",
       "is_packed": 1,
       "batch_first": 1,
       "num_layers": 2,
-      "dropout": 0.3
+      "dropout": 0.0
     },
     "decoder": {
       "emb_size": 256,
       "hid_size": 512,
       "rnn_cell_type": "gru",
       "num_layers": 2,
-      "dropout": 0,
+      "dropout": 0.0,
       "global_attention_type": "concat"
     },
     "generator": {

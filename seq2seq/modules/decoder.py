@@ -259,7 +259,7 @@ class BahdahnauAttentiveDecoder(nn.Module):
 
 		self.rnn_stack = StackedRNNCell(
 			self.num_layers,
-			self.emb_size,
+			self.hid_size, # this is hid_size because of input feed
 			self.rnn_cell_type,
 			self.hid_size,
 			self.dropout
@@ -294,6 +294,9 @@ class BahdahnauAttentiveDecoder(nn.Module):
 			input_projected = self.project_dec_input(input_t_emb) # N x dec_H
 			c_curr_projected = self.project_context(c_curr) # N x dec_H
 			input_merged = input_projected + c_curr_projected # N x dec_H
+			# print(input_merged.size())
+			# print(dec_prev.size())
+			# print(self.rnn_stack)
 			dec_hids_t, dec_prev = self.rnn_stack(input_merged, dec_prev)
 			
 			att_lst.append(att_curr)

@@ -162,6 +162,8 @@ f_log.write(time.asctime(time.localtime(time.time())) + "\n")
 f_log.write('----------------------------------------------------------------\n')
 f_log.write('================= config =================\n')
 f_log.write('| Model name: %s |\n' % model.name)
+if model.name == 'GlobalAttentionSeq2Seq':
+	f_log.write('| Attention type: %s |\n' % config['model']['decoder']['global_attention_type'])
 f_log.write('---- Encoder ----\n')
 f_log.write('RNN_cell_type    : %s\n' % config['model']['encoder']['rnn_cell_type'])
 f_log.write('Embedding size   : %d\n' % config['model']['encoder']['emb_size'])
@@ -373,11 +375,11 @@ for epochIdx in xrange(config['training']['max_epoch']):
 			)
 			print('BLEU: %2.2f (%2.2f, %2.2f, %2.2f, %2.2f) BP: %.5f ratio: %.5f (%d/%d)'
 				% (
-					bleu,
-					ngram_bleus[0],
-					ngram_bleus[1],
-					ngram_bleus[2],
-					ngram_bleus[3],
+					bleu * 100,
+					ngram_bleus[0] * 100,
+					ngram_bleus[1] * 100,
+					ngram_bleus[2] * 100,
+					ngram_bleus[3] * 100,
 					bp,
 					ratio,
 					hyp_ref_len[0],
@@ -386,11 +388,11 @@ for epochIdx in xrange(config['training']['max_epoch']):
 			)
 			f_log.write('BLEU: %2.2f (%2.2f, %2.2f, %2.2f, %2.2f) BP: %.5f ratio: %.5f (%d/%d)\n'
 				% (
-					bleu,
-					ngram_bleus[0],
-					ngram_bleus[1],
-					ngram_bleus[2],
-					ngram_bleus[3],
+					bleu * 100,
+					ngram_bleus[0] * 100,
+					ngram_bleus[1] * 100,
+					ngram_bleus[2] * 100,
+					ngram_bleus[3] * 100,
 					bp,
 					ratio,
 					hyp_ref_len[0],
@@ -398,6 +400,73 @@ for epochIdx in xrange(config['training']['max_epoch']):
 				)
 			)
 
+			print('----------Evaluation on test set----------')
+			f_log.write('----------Evaluation on test set----------\n')
+			cand_lst = []
+			gold_lst = []
+			for testBatchIdx in tqdm(xrange(len(test_data))):
+				data_symbol, data_id, data_mask, data_lengths = test_data[testBatchIdx]
+				src_id, tgt_id = data_id
+				src_mask, tgt_mask = data_mask
+				src_lengths, tgt_lengths = data_lengths
+				if USE_GPU:
+					src_id = Variable(src_id).cuda()
+					tgt_id = Variable(tgt_id).cuda()
+					src_mask = Variable(src_mask).cuda()
+					tgt_mask = Variable(tgt_mask).cuda()
+				else:
+					src_id = Variable(src_id)
+					tgt_id = Variable(tgt_id)
+					src_mask = Variable(src_mask)
+					tgt_mask = Variable(tgt_mask)
+
+				pred_ids, _ , _ = greedy_search(
+					model,
+					src_id,
+					src_mask,
+					src_lengths,
+					tgt_dict,
+					config['evaluation']['max_decode_len'],
+					USE_GPU
+				) # N x max_decode_len
+				pred_ids_lst = pred_ids.data.tolist()
+				pred_batch_lst = tgt_dict.convert_id_lst_to_symbol_lst(pred_ids_lst)
+				cand_lst.extend(pred_batch_lst)
+				# single ref. 
+				gold_batch_lst = [tup[1] for tup in data_symbol]
+				gold_lst.extend(gold_batch_lst)
+			
+			ngram_bleus, bleu, bp, hyp_ref_len, ratio = bleu_calulator.calc_bleu(
+				cand_lst,
+				[gold_lst]
+			)
+			print('BLEU: %2.2f (%2.2f, %2.2f, %2.2f, %2.2f) BP: %.5f ratio: %.5f (%d/%d)'
+				% (
+					bleu * 100,
+					ngram_bleus[0] * 100,
+					ngram_bleus[1] * 100,
+					ngram_bleus[2] * 100,
+					ngram_bleus[3] * 100,
+					bp,
+					ratio,
+					hyp_ref_len[0],
+					hyp_ref_len[1]
+				)
+			)
+			f_log.write('BLEU: %2.2f (%2.2f, %2.2f, %2.2f, %2.2f) BP: %.5f ratio: %.5f (%d/%d)\n'
+				% (
+					bleu * 100,
+					ngram_bleus[0] * 100,
+					ngram_bleus[1] * 100,
+					ngram_bleus[2] * 100,
+					ngram_bleus[3] * 100,
+					bp,
+					ratio,
+					hyp_ref_len[0],
+					hyp_ref_len[1]
+				)
+			)
+			
 		## 2. Beam search decoding
 
 	# save checkpoint

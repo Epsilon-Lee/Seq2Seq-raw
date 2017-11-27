@@ -123,13 +123,13 @@ class GlobalAttention(nn.Module):
 
 		if self.attention_type == 'dot' and self.enc_hid_size * self.enc_num_dirs != self.dec_hid_size:
 			assert False, "When dot attention, %d number of encoder dim should match decoder" % self.enc_num_dirs
-			
-		elif self.attention_type == 'bilinear':
+		
+		if self.attention_type == 'bilinear':
 			self.project_dec_hids = nn.Linear(
 				self.dec_hid_size,
-				self.enc_hid_size * sef.enc_num_dirs
+				self.enc_hid_size * self.enc_num_dirs
 			)
-		else:
+		elif self.attention_type == 'concat':
 			self.project_dec_hids = nn.Linear(
 				self.dec_hid_size,
 				self.dec_hid_size
@@ -163,7 +163,7 @@ class GlobalAttention(nn.Module):
 		"""
 		if self.attention_type == 'dot':
 			dec_h_curr = dec_h_curr.unsqueeze(2)
-			alpha_unnormalized = torch.bmm(dec_hids, dec_h_curr) # N x (L x enc_H x dec_H x 1) => N x L x 1
+			alpha_unnormalized = torch.bmm(enc_hids, dec_h_curr).squeeze(2) # N x (L x enc_H x dec_H x 1) => N x L x 1
 			alpha = F.softmax(alpha_unnormalized) # N x L
 			enc_hids = alpha.unsqueeze(2) * enc_hids # N x L x enc_H
 			h_att_curr = torch.sum(enc_hids, dim=1) # N x enc_H
@@ -173,7 +173,7 @@ class GlobalAttention(nn.Module):
 		elif self.attention_type == 'bilinear':
 			dec_h_curr_projected = self.project_dec_hids(dec_h_curr).unsqueeze(2) # N x enc_H x 1
 			alpha_unnormalized = torch.bmm(
-				dec_hids,
+				enc_hids,
 				dec_h_curr_projected
 			).squeeze(2) # N x L
 			alpha = F.softmax(alpha_unnormalized) # N x L
